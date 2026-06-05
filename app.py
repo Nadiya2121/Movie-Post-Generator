@@ -6,7 +6,7 @@ import json
 import io
 import asyncio
 from flask import Flask
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle # এসিঙ্ক্রোনাস আইডল সচল করার জন্য
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- কনফিগারেশন এরিয়া ---
@@ -40,7 +40,7 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# Pyrogram ক্লায়েন্ট ইনিশিয়েট করা (যা API ID ও HASH দিয়ে আল্ট্রা-ফাস্ট কাজ করে)
+# Pyrogram ক্লায়েন্ট ইনিশিয়েট করা
 app = Client(
     "movie_post_bot",
     api_id=API_ID,
@@ -120,13 +120,12 @@ def save_system_db():
         pass
 
 # ৩-স্তর বিশিষ্ট ক্লাউড ইমেজ আপলোডার (Catbox + Pixhost + Telegraph)
-async def upload_image_to_cloud(client, file_id):
+async def upload_image_to_cloud(client, media_object):
     try:
-        # পাইরোগ্রামের মাধ্যমে মেমোরিতে আল্ট্রা-ফাস্ট ফাইল ডাউনলোড
-        file_buffer = io.BytesIO()
-        await client.download_media(file_id, in_memory=file_buffer)
-        file_buffer.seek(0)
-        file_bytes = file_buffer.read()
+        # পাইরোগ্রামের মাধ্যমে মেমোরিতে আল্ট্রা-ফাস্ট ফাইল ডাউনলোড (Bytes অবজেক্ট হিসেবে সংগ্রহ করা হয়েছে)
+        file_bytes = await client.download_media(media_object, in_memory=True)
+        if not file_bytes:
+            return None
         
         # পদ্ধতি ১: Catbox.moe
         try:
@@ -139,7 +138,7 @@ async def upload_image_to_cloud(client, file_id):
         except Exception as e:
             print(f"Catbox failed: {e}")
 
-        # পদ্ধতি ২: Pixhost.to (নতুন অত্যন্ত স্থিতিশীল ব্যাকআপ ইমেজ হোস্ট)
+        # পদ্ধতি ২: Pixhost.to
         try:
             file_object = io.BytesIO(file_bytes)
             files = {'img': ('photo.jpg', file_object, 'image/jpeg')}
@@ -446,8 +445,7 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        photo_id = message.photo.file_id
-        poster_url = await upload_image_to_cloud(client, photo_id)
+        poster_url = await upload_image_to_cloud(client, message.photo)
         
         if poster_url:
             user_states[chat_id]['movie_data']['poster'] = poster_url
@@ -459,8 +457,7 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        photo_id = message.photo.file_id
-        backdrop_url = await upload_image_to_cloud(client, photo_id)
+        backdrop_url = await upload_image_to_cloud(client, message.photo)
         
         if backdrop_url:
             user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=original"
@@ -571,7 +568,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 
             await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
-            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
+            await client.send_message(chat_id, "❌ কোনো মুভি বা serie পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception:
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
@@ -716,7 +713,7 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<!-- دانلود করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
     <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
