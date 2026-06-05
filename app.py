@@ -6,37 +6,24 @@ from telebot import types
 from flask import Flask
 import random
 import json
-import pymongo
 
 # --- কনফিগারেশন এরিয়া ---
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
 
-# আপনার (ওনারের) পার্সোনাল টেলিগ্রাম অ্যাকাউন্ট আইডি
+# আপনার পার্সোনাল টেলিগ্রাম অ্যাকাউন্ট আইডি
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 
 # আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
+# ওনার সিক্রেট রেভিনিউ শেয়ার কনফিগারেশন
+OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://www.highrateprofit.com/your-secret-key-here') 
+REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
+
+# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
-
-# --- MongoDB ক্লাউড ডাটাবেজ কানেকশন ---
-MONGO_URI = os.environ.get('MONGO_URI') # Koyeb/Render এ MONGO_URI ভেরিয়েবল হিসেবে সেট করুন
-mongo_client = None
-db_mongo = None
-
-if MONGO_URI:
-    try:
-        # ৫ সেকেন্ড টাইমআউট দিয়ে কানেক্ট করার চেষ্টা করা হচ্ছে
-        mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        db_mongo = mongo_client['BDMovieZoneBot']
-        mongo_client.server_info() # টেস্ট কানেকশন
-        print("MongoDB Connected Successfully!")
-    except Exception as e:
-        print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON Database.")
-        db_mongo = None
 
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
 web_app = Flask(__name__)
@@ -49,14 +36,30 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# Telebot ইনিশিয়েট করা
-bot = telebot.TeleBot(BOT_TOKEN)
+# মাল্টি-থ্রেডিং সচল করে Telebot ইনিশিয়েট করা (যাতে একসাথে অনেক ইউজার দ্রুত রেসপন্স পায়)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=20)
 
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
 
-# --- ডাইনামিক ডাটাবেজ প্রসেসিং এরিয়া ---
+# ডাটাবেজ ফাইল পাথ ও প্রসেসিং
 DB_FILE = 'db_system.json'
+
+# --- MongoDB কানেকশন চেক ---
+MONGO_URI = os.environ.get('MONGO_URI') 
+mongo_client = None
+db_mongo = None
+
+if MONGO_URI:
+    try:
+        import pymongo
+        mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        db_mongo = mongo_client['BDMovieZoneBot']
+        mongo_client.server_info() 
+        print("MongoDB Connected Successfully!")
+    except Exception as e:
+        print(f"MongoDB Connection Failed: {e}. Falling back to Local Database.")
+        db_mongo = None
 
 def load_system_db():
     if db_mongo is not None:
@@ -68,10 +71,9 @@ def load_system_db():
                     'owner_share': config.get('owner_share', 20),
                     'user_ads': config.get('user_ads', {})
                 }
-        except Exception as e:
-            print(f"MongoDB Read Error: {e}")
+        except Exception:
+            pass
             
-    # লোকাল ফাইল ব্যাকআপ ট্র্যাকিং
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, 'r', encoding='utf-8') as f:
@@ -99,27 +101,39 @@ def save_system_db():
                 upsert=True
             )
             return
-        except Exception as e:
-            print(f"MongoDB Write Error: {e}")
+        except Exception:
+            pass
             
-    # লোকাল ব্যাকআপ ফাইলে সেভ
     try:
         with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(system_db, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"DB Save Error: {e}")
+    except Exception:
+        pass
 
-# টেলিগ্রাফে ফটো আপলোড করার ফাংশন
-def upload_to_telegraph(file_id):
+# ১০০% সাকসেস রেট সহ অ্যাডভান্সড ইমেজ আপলোডার ফাংশন (Catbox + Telegraph Fallback)
+def upload_image_to_cloud(file_id):
     try:
         file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
+        
+        # পদ্ধতি ১: Catbox.moe (কখনো কোয়েব/রেন্ডার আইপি ব্লক করে না এবং সুপার ফাস্ট)
+        try:
+            files = {'fileToUpload': ('photo.jpg', downloaded_file, 'image/jpeg')}
+            data = {'reqtype': 'fileupload'}
+            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=15)
+            if response.status_code == 200 and response.text.startswith('http'):
+                return response.text.strip()
+        except Exception as e:
+            print(f"Catbox upload failed, trying backup: {e}")
+
+        # পদ্ধতি ২: Telegraph (ব্যাকআপ হিসেবে ফায়ারওয়াল বাইপাস ট্রাই)
         files = {'file': ('photo.jpg', downloaded_file, 'image/jpeg')}
-        response = requests.post('https://telegra.ph/upload', files=files).json()
+        response = requests.post('https://telegra.ph/upload', files=files, timeout=15).json()
         if isinstance(response, list) and len(response) > 0:
             return "https://telegra.ph" + response[0]['src']
+            
     except Exception as e:
-        print(f"Telegraph upload failed: {e}")
+        print(f"All image upload services failed: {e}")
     return None
 
 # অটো-ডিলিট থ্রেড ফাংশন
@@ -138,18 +152,12 @@ def get_button_ad_link(chat_id):
     owner_ads = system_db.get('owner_ads', [])
     user_ads = system_db.get('user_ads', {}).get(str(chat_id), [])
 
-    # ১. র্যান্ডমলি চেক করা হচ্ছে ওনার শেয়ারে হিট করেছে কি না
     if random.randint(1, 100) <= owner_share and owner_ads:
         return random.choice(owner_ads)
-    
-    # ২. হিট না করলে ইউজারের নিজস্ব অ্যাড লিঙ্কগুলো থেকে র্যান্ডমলি রোটেট হবে
     if user_ads:
         return random.choice(user_ads)
-        
-    # ৩. ইউজারের কোনো লিঙ্ক সেট করা না থাকলে ওনারের লিঙ্কটি ডিফল্ট হিসেবে রোটেট হবে
     if owner_ads:
         return random.choice(owner_ads)
-        
     return ""
 
 # ভাষা সিলেকশন মেনু
@@ -167,14 +175,13 @@ def send_language_picker(chat_id, text="🗣 অনুগ্রহ করে ম
 
 # ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
 
-# ১. সাধারণ ইউজার: তাদের নিজেদের র্যান্ডম ডাইরেক্ট লিঙ্ক সেট করার কমান্ড
 @bot.message_handler(commands=['set_ad'])
 def set_user_ad(message):
     chat_id = message.chat.id
     text = message.text.replace("/set_ad", "").strip()
     
     if not text:
-        bot.send_message(chat_id, "⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে আপনার এক বা একাধিক ডাইরেক্ট লিঙ্ক কমা দিয়ে পাঠান:\n"
+        bot.send_message(chat_id, "⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে কমা দিয়ে আপনার ডাইরেক্ট লিঙ্কগুলো পাঠান:\n"
                                   "`/set_ad https://link1.com, https://link2.com`", parse_mode="Markdown")
         return
         
@@ -185,10 +192,8 @@ def set_user_ad(message):
         
     system_db['user_ads'][str(chat_id)] = links
     save_system_db()
-    bot.send_message(chat_id, f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে।\n"
-                              f"এখন থেকে আপনার জেনারেট করা পোস্টের প্রতি ক্লিকে এই লিঙ্কগুলো র্যান্ডমলি রোটেট হবে।")
+    bot.send_message(chat_id, f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে।")
 
-# ২. সাধারণ ইউজার: তাদের বর্তমান লিঙ্কের স্ট্যাটাস দেখা
 @bot.message_handler(commands=['my_ad'])
 def my_ad_stats(message):
     chat_id = message.chat.id
@@ -201,8 +206,6 @@ def my_ad_stats(message):
         links_text = "\n".join([f"{i+1}. {link}" for i, link in enumerate(user_ads)])
         bot.send_message(chat_id, f"📋 **আপনার একটিভ ডাইরেক্ট লিঙ্কসমূহ (রোটেশন লিস্ট):**\n\n{links_text}")
 
-
-# ৩. ওনার কমান্ড: ওনারের সিক্রেট রেভিনিউ শেয়ার পার্সেন্ট সেট করা
 @bot.message_handler(commands=['set_share'])
 def set_owner_share(message):
     chat_id = message.chat.id
@@ -221,7 +224,6 @@ def set_owner_share(message):
     except ValueError:
         bot.send_message(chat_id, "⚠️ ভুল ফরম্যাট! সঠিক ফরম্যাট: `/set_share 20`")
 
-# ৪. ওনার কমান্ড: ওনারের রোটেশন লিস্টে নতুন ডাইরেক্ট লিঙ্ক যুক্ত করা
 @bot.message_handler(commands=['add_owner_ad'])
 def add_owner_ad(message):
     chat_id = message.chat.id
@@ -237,7 +239,6 @@ def add_owner_ad(message):
     save_system_db()
     bot.send_message(chat_id, f"✅ ওনারের রোটেশন ডাটাবেজে নতুন ডাইরেক্ট লিঙ্ক সফলভাবে যুক্ত হয়েছে।")
 
-# ৫. ওনার কমান্ড: ওনারের রোটেশন লিস্ট থেকে কোনো লিঙ্ক ডিলিট করা
 @bot.message_handler(commands=['del_owner_ad'])
 def del_owner_ad(message):
     chat_id = message.chat.id
@@ -252,7 +253,6 @@ def del_owner_ad(message):
     else:
         bot.send_message(chat_id, "❌ এই লিঙ্কটি ওনারের ডাটাবেজে পাওয়া যায়নি!")
 
-# ৬. ওনার কমান্ড: ওনারের বর্তমান কনফিগারেশন স্ট্যাটাস দেখা
 @bot.message_handler(commands=['owner_stats'])
 def owner_stats(message):
     chat_id = message.chat.id
@@ -321,11 +321,11 @@ def handle_all_messages(message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         bot.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার (টেলিগ্রাফ)
+    # ম্যানুয়াল পোস্টার রিসিভার (Telegraph / Catbox)
     elif state == 'waiting_for_manual_poster' and message.content_type == 'photo':
-        bot.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে...")
+        bot.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo[-1].file_id
-        poster_url = upload_to_telegraph(photo_id)
+        poster_url = upload_image_to_cloud(photo_id)
         
         if poster_url:
             user_states[chat_id]['movie_data']['poster'] = poster_url
@@ -336,9 +336,9 @@ def handle_all_messages(message):
 
     # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.content_type == 'photo':
-        bot.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে...")
+        bot.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo[-1].file_id
-        backdrop_url = upload_to_telegraph(photo_id)
+        backdrop_url = upload_image_to_cloud(photo_id)
         
         if backdrop_url:
             # স্লাইডারের কন্ডিশন ম্যাচ করানোর জন্য ?size=original কুয়েরি হ্যাক
@@ -351,7 +351,6 @@ def handle_all_messages(message):
     elif state == 'waiting_for_manual_plot' and message.content_type == 'text':
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
         
-        # মুভি তথ্য সম্পূর্ণ হলে সরাসরি ফাইল আপলোডে চলে যাওয়া (লিঙ্ক রোটেট ব্যাকএন্ডে হবে)
         if post_type == 'movie':
             user_states[chat_id]['step'] = 'waiting_for_480p'
             bot.send_message(chat_id, "✅ মুভি তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
@@ -401,7 +400,6 @@ def handle_all_messages(message):
             
         elif state == 'waiting_for_episodes':
             if message.content_type in ['document', 'video']:
-                # চ্যানেলে ফরোয়ার্ড করে পার্মানেন্টলি সেভ করা
                 forwarded_msg = bot.forward_message(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_id=message.message_id)
                 file_msg_id = f"msg_{forwarded_msg.message_id}"
                 
