@@ -6,15 +6,14 @@ from telebot import types
 from flask import Flask
 
 # --- কনফিগারেশন এরিয়া ---
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') # পরিবেশ ভেরিয়েবল বা সরাসরি টোকেন দিন
-TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') # TMDB এপিআই কী
-BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') # @ চিহ্ন ছাড়া বটের ইউজারনেম
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
+TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
+BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
 
-# আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (আইডিটি অবশ্যই -100 দিয়ে শুরু হতে হবে)
-# উদাহরণ: -100123456789 (চ্যানেলে বটকে অ্যাডমিন বানিয়ে পোস্ট পারমিশন দিতে হবে)
+# আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
+# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
 
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
@@ -31,7 +30,7 @@ def run_web_server():
 # Telebot ইনিশিয়েট করা
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি (একসাথে শত শত ইউজার ব্যবহার করতে পারবে)
+# মাল্টি-ইউজার স্টেট ট্র্যাকিং
 user_states = {}
 
 # অটো-ডিলিট থ্রেড ফাংশন
@@ -44,23 +43,32 @@ def delete_messages_after_delay(chat_id, message_ids, delay):
                 pass
     threading.Timer(delay, delete).start()
 
+# ভাষা সিলেকশন মেনু
+def send_language_picker(chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn1 = types.InlineKeyboardButton("🇬🇧 English", callback_data="lang_English")
+    btn2 = types.InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")
+    btn3 = types.InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_Bangla")
+    btn4 = types.InlineKeyboardButton("🎙 Dual Audio (Hin-Eng)", callback_data="lang_Dual Audio (Hindi-English)")
+    btn5 = types.InlineKeyboardButton("🎙 Multi Audio", callback_data="lang_Multi Audio")
+    btn6 = types.InlineKeyboardButton("✏️ কাস্টম টাইপ করুন", callback_data="lang_custom")
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+    bot.send_message(chat_id, text, reply_markup=markup)
+
 # স্টার্ট কমান্ড হ্যান্ডলার
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     chat_id = message.chat.id
     text = message.text.strip()
     
-    # ইউজার লিঙ্কে ক্লিক করে আসলে (উদা: /start msg_1234)
+    # ইউজার লিঙ্কে ক্লিক করে আসলে
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
             try:
                 msg_id = int(param.split("_")[1])
-                
-                # আমাদের প্রাইভেট চ্যানেল থেকে ফাইলটি কপি করে ইউজারের ইনবক্সে পাঠানো
                 sent_file = bot.copy_message(chat_id=chat_id, from_chat_id=DATABASE_CHANNEL_ID, message_id=msg_id)
                 
-                # সতর্কবার্তা মেসেজ
                 warning_text = (
                     "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
                     f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
@@ -68,18 +76,17 @@ def handle_start(message):
                 )
                 sent_warning = bot.send_message(chat_id, warning_text, parse_mode="Markdown")
                 
-                # অটো ডিলিট টাইমার ট্রিলিং
                 if sent_file and sent_warning:
                     delete_messages_after_delay(chat_id, [sent_file.message_id, sent_warning.message_id], AUTO_DELETE_DELAY)
                     
-            except Exception as e:
+            except Exception:
                 bot.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
         return
 
-    # সাধারণ এডমিন বা ইউজার প্যানেল স্টার্ট
+    # সাধারণ ক্যাটাগরি প্যানেল স্টার্ট
     user_states[chat_id] = {}
     markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_movie = types.InlineKeyboardButton("🎬 মুভি পোস্ট (৩ কোয়ালিটি)", callback_data="type_movie")
+    btn_movie = types.InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie")
     btn_series = types.InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")
     markup.add(btn_movie, btn_series)
     
@@ -94,28 +101,73 @@ def handle_query(call):
     chat_id = call.message.chat.id
     
     if call.data == "type_movie":
-        user_states[chat_id] = {'type': 'movie', 'step': 'waiting_for_search'}
+        user_states[chat_id] = {'type': 'movie'}
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_auto = types.InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto")
+        btn_manual = types.InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")
+        markup.add(btn_auto, btn_manual)
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
-                              text="🎬 **মুভি পোস্ট সিলেক্ট করা হয়েছে।**\n\n"
-                                   "অনুগ্রহ করে মুভির নামটি ইংরেজিতে টাইপ করে পাঠান:")
+                              text="🎬 **মুভি পোস্ট জেনারেশন:**\n\nমুভি ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
         
     elif call.data == "type_series":
-        user_states[chat_id] = {'type': 'series', 'step': 'waiting_for_search'}
+        user_states[chat_id] = {'type': 'series'}
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_auto = types.InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto")
+        btn_manual = types.InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")
+        markup.add(btn_auto, btn_manual)
         bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
-                              text="📺 **ওয়েব সিরিজ পোস্ট সিলেক্ট করা হয়েছে।**\n\n"
-                                   "অনুগ্রহ করে সিরিজের নামটি ইংরেজিতে টাইপ করে পাঠান:")
+                              text="📺 **ওয়েব সিরিজ পোস্ট জেনারেশন:**\n\nসিরিজ ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
+
+    elif call.data == "mode_auto":
+        user_states[chat_id]['step'] = 'waiting_for_search'
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="🔍 অনুগ্রহ করে নামটি ইংরেজিতে টাইপ করে পাঠান:")
         
+    elif call.data == "mode_manual":
+        user_states[chat_id]['step'] = 'waiting_for_manual_title'
+        user_states[chat_id]['movie_data'] = {}
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="✏️ **ম্যানুয়াল পোস্ট শুরু হচ্ছে...**\n\nপ্রথমে পোস্টের মূল টাইটেল/নাম লিখে পাঠান:")
+
     elif call.data.startswith("select_"):
         parts = call.data.split("_")
         movie_id = parts[1]
         is_tv = parts[2] == "tv"
         fetch_tmdb_details(chat_id, movie_id, is_tv, call.message.message_id)
+
+    # ল্যাঙ্গুয়েজ সিলেকশন কলব্যাক
+    elif call.data.startswith("lang_"):
+        selected_lang = call.data.split("_")[1]
+        if selected_lang == "custom":
+            user_states[chat_id]['step'] = 'waiting_for_custom_lang'
+            bot.send_message(chat_id, "✏️ আপনার কাস্টম ল্যাঙ্গুয়েজটি টাইপ করে পাঠান (উদা: Tamil [Hindi-Synced]):")
+        else:
+            save_lang_and_proceed(chat_id, selected_lang)
         
     elif call.data == "generate_series_code":
         if chat_id in user_states and 'episodes' in user_states[chat_id]:
             generate_series_html_output(chat_id)
         else:
             bot.answer_callback_query(call.id, "কোনো এপিসোড ফরোয়ার্ড করা হয়নি!", show_alert=True)
+
+# ভাষা সেভ করে পরবর্তী ধাপে যাওয়ার ফাংশন
+def save_lang_and_proceed(chat_id, language):
+    user_states[chat_id]['movie_data']['lang'] = language
+    post_type = user_states[chat_id].get('type')
+    is_manual = 'is_manual' in user_states[chat_id]
+
+    if is_manual:
+        # ম্যানুয়াল এর ক্ষেত্রে পরবর্তী ধাপ হলো জেনরা চাওয়া
+        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
+        bot.send_message(chat_id, "🎭 মুভির জনরা/ক্যাটাগরি পাঠান (উদা: Action, Comedy, Sci-Fi):")
+    else:
+        # অটোর ক্ষেত্রে ফাইল ফরোয়ার্ডিং শুরু করা
+        if post_type == 'movie':
+            user_states[chat_id]['step'] = 'waiting_for_480p'
+            bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        else:
+            user_states[chat_id]['step'] = 'waiting_for_season'
+            bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
 
 # টেক্সট, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার
 @bot.message_handler(content_types=['text', 'document', 'video'])
@@ -130,17 +182,54 @@ def handle_all_messages(message):
     state = user_states[chat_id]['step']
     post_type = user_states[chat_id].get('type')
 
-    # সার্চ প্রসেস
+    # ১. অটোমেটিক সার্চ প্রসেস
     if state == 'waiting_for_search' and message.content_type == 'text':
         query = message.text.strip()
         search_tmdb(chat_id, query, post_type)
         return
 
-    # --- মুভির ফাইল রিসিভার ---
-    if post_type == 'movie':
+    # ২. কাস্টম ল্যাঙ্গুয়েজ রিসিভার
+    elif state == 'waiting_for_custom_lang' and message.content_type == 'text':
+        save_lang_and_proceed(chat_id, message.text.strip())
+        return
+
+    # --- ৩. ম্যানুয়াল ডাটা কালেকশন প্রসেস ---
+    elif state == 'waiting_for_manual_title' and message.content_type == 'text':
+        user_states[chat_id]['movie_data']['title'] = message.text.strip()
+        user_states[chat_id]['is_manual'] = True
+        user_states[chat_id]['step'] = 'waiting_for_manual_rating'
+        bot.send_message(chat_id, "⭐ IMDb রেটিং লিখে পাঠান (উদা: 8.2/10):")
+
+    elif state == 'waiting_for_manual_rating' and message.content_type == 'text':
+        user_states[chat_id]['movie_data']['rating'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_lang_selection'
+        send_language_picker(chat_id)
+
+    elif state == 'waiting_for_manual_genres' and message.content_type == 'text':
+        user_states[chat_id]['movie_data']['genres'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_manual_poster'
+        bot.send_message(chat_id, "📸 মুভি পোস্টারের ইমেজ ডিরেক্ট লিঙ্ক (Direct Poster URL) পাঠান:")
+
+    elif state == 'waiting_for_manual_poster' and message.content_type == 'text':
+        user_states[chat_id]['movie_data']['poster'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_manual_plot'
+        bot.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
+
+    elif state == 'waiting_for_manual_plot' and message.content_type == 'text':
+        user_states[chat_id]['movie_data']['plot'] = message.text.strip()
+        
+        if post_type == 'movie':
+            user_states[chat_id]['step'] = 'waiting_for_480p'
+            bot.send_message(chat_id, "✅ মুভি তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        else:
+            user_states[chat_id]['step'] = 'waiting_for_season'
+            bot.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+        return
+
+    # --- ৪. মুভির ফাইল ফরোয়ার্ড রিসিভার ---
+    if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.content_type in ['document', 'video']:
-            # সরাসরি ফাইলটি আমাদের প্রাইভেট ডাটাবেজ চ্যানেলে ফরোয়ার্ড করা হচ্ছে
             forwarded_msg = bot.forward_message(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_id=message.message_id)
             file_msg_id = f"msg_{forwarded_msg.message_id}"
         elif message.content_type == 'text' and message.text.lower().strip() == '/skip':
@@ -163,8 +252,8 @@ def handle_all_messages(message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             generate_movie_html_output(chat_id)
 
-    # --- ওয়েব সিরিজের ফাইল রিসিভার ---
-    elif post_type == 'series':
+    # --- ৫. ওয়েব সিরিজের ফাইল ফরোয়ার্ড রিসিভার ---
+    elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes']:
         if state == 'waiting_for_season' and message.content_type == 'text':
             user_states[chat_id]['season'] = message.text.strip()
             user_states[chat_id]['episodes'] = []
@@ -179,7 +268,6 @@ def handle_all_messages(message):
             
         elif state == 'waiting_for_episodes':
             if message.content_type in ['document', 'video']:
-                # চ্যানেলে ফরোয়ার্ড করে পার্মানেন্টলি সেভ করা
                 forwarded_msg = bot.forward_message(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_id=message.message_id)
                 file_msg_id = f"msg_{forwarded_msg.message_id}"
                 
@@ -193,7 +281,7 @@ def handle_all_messages(message):
             else:
                 bot.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র এপিসোডের ফাইলটি ফরোয়ার্ড করুন।")
 
-# TMDB সার্চ কুয়েরি
+# TMDB মুভি/সিরিজ সার্চ কুয়েরি
 def search_tmdb(chat_id, query, post_type):
     is_tv = "tv" if post_type == "series" else "movie"
     url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={requests.utils.quote(query)}"
@@ -214,11 +302,11 @@ def search_tmdb(chat_id, query, post_type):
                 
             bot.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=markup)
         else:
-            bot.send_message(chat_id, "❌ কোনো ফলাফল পাওয়া যায়নি! আবার চেষ্টা করুন:")
+            bot.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception:
         bot.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
-# সিলেক্ট করার পর ডিটেইলস সংগ্রহ করা
+# TMDB ডিটেইলস সংগ্রহ
 def fetch_tmdb_details(chat_id, movie_id, is_tv, message_id):
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}"
@@ -237,19 +325,13 @@ def fetch_tmdb_details(chat_id, movie_id, is_tv, message_id):
             'title': f"{title} ({year})",
             'poster': poster,
             'rating': rating,
-            'lang': 'Dual Audio' if not is_tv else 'Multi Audio',
             'genres': genres,
             'plot': plot
         }
 
-        if not is_tv:
-            user_states[chat_id]['step'] = 'waiting_for_480p'
-            bot.send_message(chat_id, f"✅ **মুভি সিলেক্ট করা হয়েছে:** {title}\n\n"
-                                      "👉 এখন **480p (SD)** কোয়ালিটির ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
-        else:
-            user_states[chat_id]['step'] = 'waiting_for_season'
-            bot.send_message(chat_id, f"✅ **সিরিজ সিলেক্ট করা হয়েছে:** {title}\n\n"
-                                      "👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+        # ভাষা চয়ন করার স্টেট সেট করা
+        user_states[chat_id]['step'] = 'waiting_for_lang_selection'
+        send_language_picker(chat_id, f"✅ মুভি সিলেক্ট হয়েছে: **{title}**\n\n🗣 অনুগ্রহ করে ভাষাটি সিলেক্ট করুন:")
             
     except Exception:
         bot.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
@@ -350,7 +432,7 @@ def generate_series_html_output(chat_id):
 
 # মূল এক্সেকিউশন
 if __name__ == '__main__':
-    # ১. প্রথমে ব্যাকগ্রাউন্ড থ্রেডে Flask Web Server রান করা (পোর্ট বাইন্ড করার জন্য)
+    # ১. প্রথমে ব্যাকগ্রাউন্ড থ্রেডে Flask Web Server রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
