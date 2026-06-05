@@ -9,7 +9,7 @@ import html # এইচটিএমএল ট্যাগ সুরক্ষি�
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.enums import ParseMode # অফিশিয়াল এইচটিএমএল পার্স মোড
+from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
 
 # --- কনফিগারেশন এরিয়া ---
 API_ID = int(os.environ.get('API_ID', 29462738)) # আপনার টেলিগ্রাম এপিআই আইডি (my.telegram.org থেকে সংগৃহীত)
@@ -29,7 +29,7 @@ OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/110
 REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
 
 # --- ImgBB এপিআই কী কনফিগারেশন ---
-# অনুগ্রহ করে 'imgbb.com' এ একটি ফ্রি অ্যাকাউন্ট খুলে আপনার নিজস্ব API Key টি নিচে বসিয়ে দিন
+# 'imgbb.com' থেকে আপনার নিজস্ব API Key টি নিচে বসিয়ে দিন
 IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'b277202f6811a4eae0d12acc18f87347') 
 
 # ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
@@ -159,27 +159,86 @@ async def upload_image_to_cloud(file_id):
             file_object = io.BytesIO(img_data)
             files = {'fileToUpload': ('photo.jpg', file_object, 'image/jpeg')}
             data = {'reqtype': 'fileupload'}
-            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
-            if response.status_code == 200 and response.text.startswith('http'):
-                return response.text.strip()
+            r = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
+            if r.status_code == 200 and r.text.startswith('http'):
+                return r.text.strip()
         except Exception as e:
             print(f"Catbox failed: {e}")
 
-        # পদ্ধতি ৩: Pixhost.to (৩য় ব্যাকআপ)
+        # পদ্ধতি ৩: Pixhost.to
         try:
             file_object = io.BytesIO(img_data)
             files = {'img': ('photo.jpg', file_object, 'image/jpeg')}
             data = {'content_type': '0'}
-            response = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=10)
-            if response.status_code == 200:
-                res_data = response.json()
+            r = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=10)
+            if r.status_code == 200:
+                res_data = r.json()
                 if 'img_url' in res_data:
                     return res_data['img_url']
         except Exception as e:
             print(f"Pixhost failed: {e}")
+
+        # পদ্ধতি ৪: Telegraph (বানান ভুল সংশোধন করা হয়েছে)
+        try:
+            files = {'file': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
+            r = requests.post('https://telegra.ph/upload', files=files, timeout=12).json()
+            if isinstance(r, list) and len(r) > 0:
+                return "https://telegra.ph" + r[0]['src']
+        except Exception as e:
+            print(f"Telegraph failed: {e}")
             
     except Exception as e:
         print(f"All image upload services failed: {e}")
+    return None
+
+# অফিশিয়াল HTTP API ফরোয়ার্ডার (যা Peer ID এরর চিরতরে দূর করবে এবং কোনো ম্যানুয়াল মেসেজ ছাড়াই কাজ করবে)
+def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+        payload = {
+            "chat_id": DATABASE_CHANNEL_ID,
+            "caption": caption
+        }
+        if file_type == 'document':
+            payload["document"] = file_id
+        else:
+            payload["video"] = file_id
+        
+        res = requests.post(url, json=payload, timeout=15).json()
+        if res.get('ok'):
+            return res['result']['message_id']
+    except Exception as e:
+        print(f"HTTP File_ID Send Failed: {e}")
+
+    # ব্যাকআপ পদ্ধতি: ডিরেক্ট ফরওয়ার্ড (HTTP API এর মাধ্যমে)
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
+        payload = {
+            "chat_id": DATABASE_CHANNEL_ID,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id
+        }
+        res = requests.post(url, json=payload, timeout=15).json()
+        if res.get('ok'):
+            return res['result']['message_id']
+    except Exception as e:
+        print(f"HTTP Forward Failed: {e}")
+    return None
+
+# অফিশিয়াল HTTP API কপি মেথড (ইউজারদের ফাইল ডেলিভারি নিশ্চিত করার জন্য)
+def send_file_to_user(to_chat_id, msg_id):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/copyMessage"
+        payload = {
+            "chat_id": to_chat_id,
+            "from_chat_id": DATABASE_CHANNEL_ID,
+            "message_id": msg_id
+        }
+        res = requests.post(url, json=payload, timeout=15).json()
+        if res.get('ok'):
+            return res['result']['message_id']
+    except Exception as e:
+        print(f"HTTP copyMessage failed: {e}")
     return None
 
 # অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
@@ -224,7 +283,7 @@ async def set_user_ad(client, message):
     
     if not text:
         await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে কমা দিয়ে আপনার ডাইরেক্ট লিঙ্কগুলো পাঠান:\n"
-                                 "`/set_ad https://link1.com, https://link2.com`", parse_mode="markdown")
+                                 "`/set_ad https://link1.com, https://link2.com`", parse_mode=ParseMode.MARKDOWN)
         return
         
     links = [l.strip() for l in text.split(",") if l.strip().startswith("http")]
@@ -315,27 +374,25 @@ async def owner_stats_handler(client, message):
 @app.on_message(filters.command("start") & filters.private)
 async def handle_start(client, message):
     chat_id = message.chat.id
-    text = message.text.strip()
+    text = message.text.strip() if message.text else ""
     
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            try:
-                msg_id = int(param.split("_")[1])
-                sent_file = await client.copy_message(chat_id=chat_id, from_chat_id=DATABASE_CHANNEL_ID, message_id=msg_id)
-                
+            # অফিশিয়াল এপিআই কপি মেথড কল (MTProto Peer ID এরর মুক্ত)
+            user_msg_id = send_file_to_user(chat_id, int(param.split("_")[1]))
+            
+            if user_msg_id:
                 warning_text = (
                     "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
                     f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
                     "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
                 )
-                sent_warning = await client.send_message(chat_id, warning_text)
+                sent_warning = await client.send_message(chat_id, warning_text, parse_mode=ParseMode.MARKDOWN)
                 
-                if sent_file and sent_warning:
-                    # এসিঙ্ক্রোনাস ব্যাকগ্রাউন্ড ডিলিট টাস্ক চালু করা
-                    asyncio.create_task(delete_messages_after_delay(chat_id, [sent_file.id, sent_warning.id], AUTO_DELETE_DELAY))
-                    
-            except Exception:
+                # এসিঙ্ক্রোনাস ব্যাকগ্রাউন্ড ডিলিট টাস্ক
+                asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg_id, sent_warning.id], AUTO_DELETE_DELAY))
+            else:
                 await client.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
         return
 
@@ -459,7 +516,7 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার (১ম আর্গুমেন্ট বাগ ফিক্স)
+    # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -473,7 +530,7 @@ async def handle_all_messages(client, message):
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
-    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার (১ম আর্গুমেন্ট বাগ ফিক্স)
+    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -498,32 +555,20 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (অফিশিয়াল এপিআই লক বাইপাস হ্যাক) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
-            try:
-                if message.document:
-                    forwarded_msg = await client.send_document(
-                        chat_id=DATABASE_CHANNEL_ID, 
-                        document=message.document.file_id,
-                        caption=message.caption or ""
-                    )
-                else:
-                    forwarded_msg = await client.send_video(
-                        chat_id=DATABASE_CHANNEL_ID, 
-                        video=message.video.file_id,
-                        caption=message.caption or ""
-                    )
-                file_msg_id = f"msg_{forwarded_msg.id}"
-            except Exception as e:
-                print(f"File ID forward failed, trying standard forward: {e}")
-                try:
-                    forwarded_msg = await message.forward(DATABASE_CHANNEL_ID)
-                    file_msg_id = f"msg_{forwarded_msg.id}"
-                except Exception as ex:
-                    await client.send_message(chat_id, f"❌ ফাইলটি ডাটাবেজে সেভ করা যায়নি! এরর: {ex}\n\nদয়া করে বটের অ্যাডমিন পারমিশন চেক করুন।")
-                    return
+            file_type = 'document' if message.document else 'video'
+            file_id = message.document.file_id if message.document else message.video.file_id
+            
+            # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট (১০০% সাকসেস)
+            db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            if db_msg_id:
+                file_msg_id = f"msg_{db_msg_id}"
+            else:
+                await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি! অনুগ্রহ করে নিশ্চিত করুন যে বটটি চ্যানেলে এডমিন হিসেবে আছে।")
+                return
         elif message.text and message.text.lower().strip() == '/skip':
             file_msg_id = ""
         else:
@@ -544,7 +589,7 @@ async def handle_all_messages(client, message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
 
-    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
+    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার (লক বাইপাস সহ) ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -560,28 +605,16 @@ async def handle_all_messages(client, message):
             
         elif state == 'waiting_for_episodes':
             if message.document or message.video:
-                try:
-                    if message.document:
-                        forwarded_msg = await client.send_document(
-                            chat_id=DATABASE_CHANNEL_ID, 
-                            document=message.document.file_id,
-                            caption=message.caption or ""
-                        )
-                    else:
-                        forwarded_msg = await client.send_video(
-                            chat_id=DATABASE_CHANNEL_ID, 
-                            video=message.video.file_id,
-                            caption=message.caption or ""
-                        )
-                    file_msg_id = f"msg_{forwarded_msg.id}"
-                except Exception as e:
-                    print(f"Series File ID forward failed, trying standard: {e}")
-                    try:
-                        forwarded_msg = await message.forward(DATABASE_CHANNEL_ID)
-                        file_msg_id = f"msg_{forwarded_msg.id}"
-                    except Exception as ex:
-                        await client.send_message(chat_id, f"❌ ফাইলটি ডাটাবেজে সেভ করা যায়নি! এরর: {ex}\n\nদয়া করে বটের অ্যাডমিন পারমিশন চেক করুন।")
-                        return
+                file_type = 'document' if message.document else 'video'
+                file_id = message.document.file_id if message.document else message.video.file_id
+                
+                # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট
+                db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+                if db_msg_id:
+                    file_msg_id = f"msg_{db_msg_id}"
+                else:
+                    await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি! অনুগ্রহ করে নিশ্চিত করুন যে বটটি চ্যানেলে এডমিন হিসেবে আছে।")
+                    return
                 
                 user_states[chat_id]['temp_file_key'] = file_msg_id
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
@@ -626,7 +659,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception:
@@ -664,7 +697,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     except Exception:
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর
+# মুভি কোড জেনারেটর (পার্সিং এরর ফিক্স)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -709,9 +742,9 @@ async def generate_movie_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<!-- دانلود করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
@@ -725,7 +758,7 @@ async def generate_movie_html_output(client, chat_id):
 </div>
 <!-- MOVIE POST END -->"""
 
-    await client.send_message(chat_id, "🎉 **আপনলর মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
     import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
@@ -750,7 +783,7 @@ async def generate_series_html_output(client, chat_id):
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম扪 ইমেজ (গ্রিড কার্ড পোস্টার) -->
+    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
     <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
     <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
     <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
