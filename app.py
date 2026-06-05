@@ -819,7 +819,7 @@ async def generate_movie_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা باکس (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
 <div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
