@@ -57,46 +57,6 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- স্মার্ট কোড সেন্ডার এবং অটো-স্প্লিটার মেকানিজম ---
-async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
-    # Raw HTML কোডকে সরাসরি Markdown কোড ব্লকে নেওয়া হলো (যাতে এস্কেপ করার ফলে সাইজ বৃদ্ধি না পায়)
-    markdown_code_block = f"```html\n{html_code}\n```"
-    
-    # কোড লিমিটের ভেতরে থাকলে এক মেসেজে কোড ব্লক আকারে পাঠাবে
-    if len(markdown_code_block) <= 4096:
-        try:
-            await client.send_message(chat_id, markdown_code_block, parse_mode=ParseMode.MARKDOWN)
-            return
-        except Exception as e:
-            print(f"Direct markdown block failed: {e}. Trying HTML escape backup...")
-            try:
-                escaped_code = html.escape(html_code)
-                await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
-                return
-            except Exception:
-                pass
-
-    # কোডটি ৪০০০ অক্ষরের বেশি হলে টেলিগ্রাম মেসেজ রিজেক্ট করে, তাই এটি নিরাপদ পার্টে ভাগ করে মেসেজেই পাঠানো হবে
-    print("HTML code length exceeds limit. Splitting into multiple messages...")
-    parts = []
-    current_part = ""
-    for line in html_code.split("\n"):
-        if len(current_part) + len(line) + 20 > 3800:
-            parts.append(current_part)
-            current_part = line + "\n"
-        else:
-            current_part += line + "\n"
-    if current_part:
-        parts.append(current_part)
-        
-    for i, part in enumerate(parts):
-        part_block = f"```html\n{part}\n```"
-        await client.send_message(
-            chat_id, 
-            f"📋 **কোড পার্ট {i+1} (কপি করে পর পর ব্লগারে বসিয়ে দিন):**\n{part_block}", 
-            parse_mode=ParseMode.MARKDOWN
-        )
-
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
 
@@ -462,7 +422,7 @@ async def handle_start(client, message):
     ])
     
     await client.send_message(chat_id, 
-                     "👋 **BD Movie Zone আল্ট্রা-ফাস্ট ফাইল স্টোর ও blogger পোস্ট জেনারেটর প্যানেল!**\n\n"
+                     "👋 **BD Movie Zone আল্ট্রা-ফাস্ট ফাইল স্টোর ও ব্লগার পোস্ট জেনারেটর প্যানেল!**\n\n"
                      "সরাসরি ফাইল ফরোয়ার্ড করে পোস্ট তৈরি করতে ক্যাটাগরি সিলেক্ট করুন:", 
                      reply_markup=markup)
 
@@ -572,7 +532,6 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_genres' and message.text:
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
-        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
@@ -765,7 +724,8 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         print(f"Async TMDB Details Error: {e}")
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
+
+# মুভি কোড জেনারেটর (ইঞ্জিন মোড: ডেটা চালিত ক্ষুদ্র কোড)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -780,201 +740,41 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
-    # ডাইনামিক বাটন জেনারেটর (আলাদা পাইথন ভেরিয়েবলে তৈরি করা হয়েছে যাতে কোনো সিনট্যাক্স এরর না আসে)
-    btn_480_html = ""
-    if link_480:
-        btn_480_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_480}\', \'{link_480}\')" target="_self" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
+    # অত্যন্ত ছোট এবং লাইটওয়েট থিম-ইঞ্জিন ফ্রেন্ডলি এইচটিএমএল কোড
+    html_code = f"""<div class="bmz-post" data-type="movie" data-title="{data['title']}" data-poster="{data['poster']}" data-backdrop="{data['backdrop']}" data-rating="{data['rating']}" data-lang="{data['lang']}" data-genres="{data['genres']}" data-plot="{data['plot']}" data-l480="{link_480}" data-l720="{link_720}" data-l1080="{link_1080}" data-a480="{ad_480}" data-a720="{ad_720}" data-a1080="{ad_1080}"></div>"""
 
-    btn_720_html = ""
-    if link_720:
-        btn_720_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_720}\', \'{link_720}\')" target="_self" style="background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 720p (HD)</span></a>'
-
-    btn_1080_html = ""
-    if link_1080:
-        btn_1080_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_1080}\', \'{link_1080}\')" target="_self" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
-
-    html_code = f"""<!-- MOVIE POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
-</div>
-
-<div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
-</div>
-
-<div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
-    <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Movie Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
-</div>
-
-<div style="margin: 20px 0;">
-    <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
-</div>
-
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
-<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
-    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
-            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-        </svg>
-        ডাউনলোড করার সঠিক নিয়ম:
-    </strong>
-    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
-        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
-        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
-        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
-    </p>
-</div>
-
-<!-- ডাউনলোড বাটন এরিয়া -->
-<div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; text-align: center; margin: 20px 0;">
-    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0;">Download Links:</h3>
-    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;">
-        {btn_480_html}
-        {btn_720_html}
-        {btn_1080_html}
-    </div>
-</div>
-
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
-<script>
-function handleDownloadClick(element, adLink, fileLink) {{
-    if (!adLink || adLink === 'None' || adLink === '') {{
-        window.location.href = fileLink;
-        return;
-    }}
-    if (element.getAttribute('data-clicked') === 'true') {{
-        window.location.href = fileLink;
-    }} else {{
-        window.open(adLink, '_blank');
-        element.setAttribute('data-clicked', 'true');
-        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-        element.style.borderColor = '#10b981';
-        element.style.color = '#fff';
-        
-        var mainText = element.querySelector('.btn-label-text');
-        if (mainText) {{
-            mainText.innerHTML = '📥 Click Again to Download';
-        }}
-    }}
-}}
-</script>
-<!-- MOVIE POST END -->"""
-
-    await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের ব্লগার HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     
-    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
-    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
+    # এটি ৫-৬ লাইনের একটি মেসেজ হবে যা এক ক্লিকে সম্পূর্ণ কপি করা যাবে
+    await client.send_message(chat_id, f"```html\n{html_code}\n```", parse_mode=ParseMode.MARKDOWN)
     
     user_states[chat_id] = {} 
 
-# ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
+
+# ওয়েব সিরিজ কোড জেনারেটর (ইঞ্জিন মোড: ডেটা চালিত ক্ষুদ্র কোড)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
     episodes = user_states[chat_id]['episodes']
-    user_direct_link = user_states[chat_id].get('direct_link', '')
 
-    episode_buttons_html = ""
+    ep_list = []
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
         ad_link = get_button_ad_link(chat_id)
-        onclick_attr = f"onclick=\"handleDownloadClick(this, '{ad_link}', '{link}')\"" if ad_link else ""
-        
-        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড
-        episode_buttons_html += f"""        <a href="javascript:void(0);" {onclick_attr} target="_self" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
-            <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;" class="btn-sub-text">Download Link</span>
-            <span style="font-size: 13px; color: #fff;" class="btn-label-text">{ep['name']}</span>
-        </a>\n"""
+        ep_list.append({
+            "name": ep['name'],
+            "link": link,
+            "ad": ad_link
+        })
 
-    html_code = f"""<!-- TV SHOW POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
-</div>
+    # এপিসোডগুলোকে ডাইনামিক জেসনে কনভার্ট করা হচ্ছে যেন থিম ইঞ্জিন এটি রিড করতে পারে
+    episodes_json = json.dumps(ep_list, ensure_ascii=False).replace('"', '&quot;')
 
-<div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
-</div>
-
-<div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
-    <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Series Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
-    <div style="margin-bottom: 10px;"><strong>Season:</strong> {season}</div>
-</div>
-
-<div style="margin: 20px 0;">
-    <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
-</div>
-
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
-<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
-    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
-            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-        </svg>
-        ডাউনলোড করার সঠিক নিয়ম:
-    </strong>
-    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
-        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
-        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
-        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
-    </p>
-</div>
-
-<!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
-<div style="background: #0d0e12; padding: 25px; border-radius: 12px; border: 1.5px solid #222; margin: 20px 0;">
-    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center; font-size: 16px; letter-spacing: 0.5px; border-bottom: 2px solid #cc0000; display: inline-block; padding-bottom: 5px;">📥 Download Episodes (Season {season}):</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
-{episode_buttons_html}    </div>
-</div>
-
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
-<script>
-function handleDownloadClick(element, adLink, fileLink) {{
-    if (!adLink || adLink === 'None' || adLink === '') {{
-        window.location.href = fileLink;
-        return;
-    }}
-    if (element.getAttribute('data-clicked') === 'true') {{
-        window.location.href = fileLink;
-    }} else {{
-        window.open(adLink, '_blank');
-        element.setAttribute('data-clicked', 'true');
-        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-        element.style.borderColor = '#10b981';
-        element.style.color = '#fff';
-        
-        var subText = element.querySelector('.btn-sub-text');
-        var mainText = element.querySelector('.btn-label-text');
-        if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
-        if (mainText) mainText.innerHTML = 'Click Again';
-    }}
-}}
-</script>
-<!-- TV SHOW POST END -->"""
+    html_code = f"""<div class="bmz-post" data-type="series" data-title="{data['title']} (Season {season})" data-poster="{data['poster']}" data-backdrop="{data['backdrop']}" data-rating="{data['rating']}" data-lang="{data['lang']}" data-genres="{data['genres']}" data-plot="{data['plot']}" data-episodes="{episodes_json}"></div>"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     
-    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
-    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
+    await client.send_message(chat_id, f"```html\n{html_code}\n```", parse_mode=ParseMode.MARKDOWN)
     
     user_states[chat_id] = {}
 
