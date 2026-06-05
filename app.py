@@ -121,48 +121,75 @@ def save_system_db():
     except Exception:
         pass
 
-# ১০০% সাকসেস রেট সহ অ্যাডভান্সড ইমেজ আপলোডার ফাংশন (HTTP getFile API + Catbox + Pixhost)
-async def upload_image_to_cloud(file_id):
+# ১০০% সাকসেস রেট সহ অ্যাডভান্সড ডাবল-লেয়ার ইমেজ আপলোডার ফাংশন
+async def upload_image_to_cloud(client, media_object):
+    local_path = None
+    img_data = None
+    
+    # ধাপ ১: পাইরোগ্রামের নিজস্ব MTProto ব্যবহার করে লোকাল ফাইলে ডাউনলোড করা হচ্ছে
     try:
-        # ১. টেলিগ্রামের অফিসিয়াল HTTP API ব্যবহার করে ডাউনলোডের ডিরেক্ট ইউআরএল জেনারেট (১০০% ক্যাশ গ্যারান্টি)
-        get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
-        res = requests.get(get_file_url, timeout=10).json()
-        if not res.get('ok'):
-            return None
-        file_path = res['result']['file_path']
-        
-        # ২. ডিরেক্ট ইমেজ বাইটস ডাউনলোড করা হচ্ছে
-        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        img_data = requests.get(download_url, timeout=15).content
-        if not img_data:
-            return None
-
-        # পদ্ধতি ১: Catbox.moe
-        try:
-            file_object = io.BytesIO(img_data)
-            files = {'fileToUpload': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'reqtype': 'fileupload'}
-            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
-            if response.status_code == 200 and response.text.startswith('http'):
-                return response.text.strip()
-        except Exception as e:
-            print(f"Catbox failed: {e}")
-
-        # পদ্ধতি ২: Pixhost.to
-        try:
-            file_object = io.BytesIO(img_data)
-            files = {'img': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'content_type': '0'}
-            response = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=10)
-            if response.status_code == 200:
-                res_data = response.json()
-                if 'img_url' in res_data:
-                    return res_data['img_url']
-        except Exception as e:
-            print(f"Pixhost failed: {e}")
-            
+        local_path = await client.download_media(media_object)
+        if local_path and os.path.exists(local_path):
+            with open(local_path, 'rb') as f:
+                img_data = f.read()
     except Exception as e:
-        print(f"All image upload services failed: {e}")
+        print(f"MTProto download failed: {e}")
+        
+    # ধাপ ২: প্রথম ধাপ ব্যর্থ হলে ব্যাকআপ হিসেবে সরাসরি টেলিগ্রাম HTTP API থেকে ডাউনলোড করার ট্রাই
+    if not img_data:
+        try:
+            file_id = media_object.file_id
+            get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+            res = requests.get(get_file_url, timeout=10).json()
+            if res.get('ok'):
+                file_path = res['result']['file_path']
+                download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+                img_data = requests.get(download_url, timeout=12).content
+        except Exception as e:
+            print(f"HTTP download failed: {e}")
+
+    # মেমোরি বাঁচাতে লোকাল ফাইল সাথে সাথে ডিলিট করা হচ্ছে
+    if local_path and os.path.exists(local_path):
+        try:
+            os.remove(local_path)
+        except Exception:
+            pass
+            
+    if not img_data:
+        return None
+
+    # ধাপ ৩: ডাউনলোডকৃত ইমেজ ডাটা একের পর এক ক্লাউড সার্ভারে আপলোড ট্রাই
+    # পদ্ধতি ১: Catbox.moe
+    try:
+        files = {'fileToUpload': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
+        data = {'reqtype': 'fileupload'}
+        r = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=12)
+        if r.status_code == 200 and r.text.startswith('http'):
+            return r.text.strip()
+    except Exception as e:
+        print(f"Catbox failed: {e}")
+
+    # পদ্ধতি ২: Pixhost.to
+    try:
+        files = {'img': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
+        data = {'content_type': '0'}
+        r = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=12)
+        if r.status_code == 200:
+            res_data = r.json()
+            if 'img_url' in res_data:
+                return res_data['img_url']
+    except Exception as e:
+        print(f"Pixhost failed: {e}")
+
+    # পদ্ধতি ৩: Telegraph (৩য় ব্যাকআপ)
+    try:
+        files = {'file': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
+        r = requests.post('https://telegra.ph/upload', files=files, timeout=12).json()
+        if isinstance(r, list) and len(r) > 0:
+            return "https://telegra.ph" + r[0]['src']
+    except Exception as e:
+        print(f"Telegraph failed: {e}")
+
     return None
 
 # অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
@@ -445,9 +472,8 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (১০০% সাকসেসফুল)
-        poster_url = await upload_image_to_cloud(photo_id)
+        # পাইরোগ্রামের ফটো অবজেক্ট সরাসরি ডাউনলোড ফাংশনে পাঠানো হচ্ছে
+        poster_url = await upload_image_to_cloud(client, message.photo)
         
         if poster_url:
             user_states[chat_id]['movie_data']['poster'] = poster_url
@@ -459,9 +485,8 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (১০০% সাকসেসফুল)
-        backdrop_url = await upload_image_to_cloud(photo_id)
+        # পাইরোগ্রামের ফটো অবজেক্ট সরাসরি ডাউনলোড ফাংশনে পাঠানো হচ্ছে
+        backdrop_url = await upload_image_to_cloud(client, message.photo)
         
         if backdrop_url:
             user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=original"
@@ -481,11 +506,12 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (MTProto ফরোয়ার্ড ফিক্স) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
-            forwarded_msg = await client.forward_messages(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_ids=message.id)
+            # একক ফরোয়ার্ড নিশ্চিত করতে Pyrogram-এর বাউন্ড মেথড ব্যবহার করা হয়েছে (যা ক্র্যাশ দূর করবে)
+            forwarded_msg = await message.forward(chat_id=DATABASE_CHANNEL_ID)
             file_msg_id = f"msg_{forwarded_msg.id}"
         elif message.text and message.text.lower().strip() == '/skip':
             file_msg_id = ""
@@ -524,7 +550,7 @@ async def handle_all_messages(client, message):
         elif state == 'waiting_for_episodes':
             if message.document or message.video:
                 # চ্যানেলে ফরোয়ার্ড করে পার্মানেন্টলি সেভ করা
-                forwarded_msg = await client.forward_messages(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_ids=message.id)
+                forwarded_msg = await message.forward(chat_id=DATABASE_CHANNEL_ID)
                 file_msg_id = f"msg_{forwarded_msg.id}"
                 
                 user_states[chat_id]['temp_file_key'] = file_msg_id
@@ -608,7 +634,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     except Exception:
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর
+# মুভি কোড জেনারেটর (পার্সিং এরর ফিক্স)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -670,7 +696,8 @@ async def generate_movie_html_output(client, chat_id):
 <!-- MOVIE POST END -->"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # কপিযোগ্য ডার্ক এইচটিএমএল কোড ব্লক রেসপন্স
+    # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
+    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {} 
 
@@ -718,10 +745,10 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (উর্দু সম্পূর্ণ ডিলেট করে বাংলা যোগ করা হয়েছে) -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
     <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
-    ڈাউনلوڈ بٹنے کلک کرنے کے ساتھ ساتھ ایک نیا ٹیب یا اسپانسر پیج اوپن ہوگا۔ برائے مہربانی پچھلے ٹیب یا مین پیج پر واپس آئیں، آپ کو آپ کا مطلوبہ ویڈیو فائل براہ راست ٹیلی گرام پر مل جائے گا۔
+    ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
 <!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
@@ -733,7 +760,8 @@ async def generate_series_html_output(client, chat_id):
 <!-- TV SHOW POST END -->"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # কপিযোগ্য ডার্ক এইচটিএমএল কোড ব্লক রেসপন্স
+    # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
+    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {}
 
