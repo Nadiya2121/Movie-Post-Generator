@@ -30,7 +30,7 @@ REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20))
 
 # --- ImgBB এপিআই কী কনফিগারেশন ---
 # অনুগ্রহ করে 'imgbb.com' এ একটি ফ্রি অ্যাকাউন্ট খুলে আপনার নিজস্ব API Key টি নিচে বসিয়ে দিন
-IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', '64ea7d8009b0b8c6e2b60458dfadcb5b') 
+IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'b277202f6811a4eae0d12acc18f87347') 
 
 # ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
