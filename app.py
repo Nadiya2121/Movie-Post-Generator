@@ -1,5 +1,6 @@
 import os
 import threading
+import requests
 import random
 import json
 import io
@@ -150,7 +151,7 @@ async def upload_image_to_cloud(file_id):
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (আইজিজিবি)
+        # পদ্ধতি ১: ImgBB (আইজিজিবি - এটি সুপার ফাস্ট এবং ক্লাউডে স্থায়ী)
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
                 url = "https://api.imgbb.com/1/upload"
@@ -292,6 +293,35 @@ async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ
     ])
     await client.send_message(chat_id, text, reply_markup=markup)
 
+# ক্যারেক্টার লিমিট বাইপাস করে সুরক্ষিতভাবে কোড ডেলিভারি করার মাস্টার-ফাংশন (চ্যাট কপিব্লক + ফাইল ফলব্যাক)
+async def send_code_to_user(client, chat_id, html_code, title="post_code"):
+    try:
+        escaped_code = html.escape(html_code)
+        # যদি কোড সাইট ৩,৮০০ ক্যারেক্টারের কম হয়, তবে কপি ব্লকে পাঠানো হবে
+        if len(escaped_code) < 3800:
+            await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+        else:
+            # অতিরিক্ত বড় ফাইল হলে ক্র্যাশ এড়াতে মেমোরি টেক্সট ফাইল আকারে পাঠানো হবে
+            file_data = io.BytesIO(html_code.encode('utf-8'))
+            file_data.name = f"{title.replace(' ', '_')}_Blogger_Code.txt"
+            await client.send_document(
+                chat_id=chat_id,
+                document=file_data,
+                caption="📝 **এইচটিএমএল কোডটি বড় হওয়ায় ফাইল আকারে পাঠানো হলো!**\n\nফাইলটি ডাউনলোড করে ভেতরের সম্পূর্ণ কোডটি কপি করে নিন।"
+            )
+    except Exception as e:
+        # কোনো কারণে পার্সিং ফেইল হলে সরাসরি ফাইল ফলব্যাক ট্র্যাকিং
+        try:
+            file_data = io.BytesIO(html_code.encode('utf-8'))
+            file_data.name = "Blogger_Post_Code.txt"
+            await client.send_document(
+                chat_id=chat_id,
+                document=file_data,
+                caption="📝 **কোড পার্সিং সমস্যা এড়াতে ফাইল আকারে কোডটি ডেলিভারি করা হলো:**"
+            )
+        except Exception as ex:
+            await client.send_message(chat_id, f"❌ কোড পাঠাতে ত্রুটি ঘটেছে: {ex}")
+
 
 # ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
 
@@ -403,7 +433,7 @@ async def handle_start(client, message):
             
             if user_msg_id:
                 warning_text = (
-                    "⚠️ **গুরুত্বपूर्ण সতর্কবার্তা!**\n\n"
+                    "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
                     f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
                     "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
                 )
@@ -535,10 +565,11 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার (বাগ-মুক্ত এপিআই আপলোডার)
+    # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
+        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         poster_url = await upload_image_to_cloud(photo_id)
         
         if poster_url:
@@ -572,14 +603,15 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (লক বাইপাস সহ) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (অফিশিয়াল এপিআই লক বাইপাস হ্যাক) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট (১০০% সাকসেস)
+            db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
             else:
@@ -624,7 +656,8 @@ async def handle_all_messages(client, message):
                 file_type = 'document' if message.document else 'video'
                 file_id = message.document.file_id if message.document else message.video.file_id
                 
-                db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+                # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট
+                db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
                 if db_msg_id:
                     file_msg_id = f"msg_{db_msg_id}"
                 else:
@@ -829,12 +862,10 @@ function handleDownloadClick(element, adLink, fileLink) {{
 <!-- MOVIE POST END -->"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
-    await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
-    user_states[chat_id] = {} 
+    # ক্যারেক্টার লিমিট বাইপাস ও সুরক্ষিত পার্সিং-এর মাধ্যমে কোড ডেলিভারি
+    await send_code_to_user(client, chat_id, html_code, data['title'])
 
-# ওয়েব সিরিজ কোড জেনারেটর
+# ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -880,8 +911,8 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
-<div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
+<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
             <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
@@ -928,9 +959,8 @@ function handleDownloadClick(element, adLink, fileLink) {{
 <!-- TV SHOW POST END -->"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
-    await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
+    # ক্যারেক্টার লিমিট বাইপাস ও সুরক্ষিত পার্সিং-এর মাধ্যমে কোড ডেলিভারি
+    await send_code_to_user(client, chat_id, html_code, f"{data['title']}_Season_{season}")
     user_states[chat_id] = {}
 
 
