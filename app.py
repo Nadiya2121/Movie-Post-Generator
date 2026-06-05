@@ -121,48 +121,56 @@ def save_system_db():
 
 # ৩-স্তর বিশিষ্ট ক্লাউড ইমেজ আপলোডার (Catbox + Pixhost + Telegraph)
 async def upload_image_to_cloud(client, media_object):
+    local_path = None
     try:
-        # পাইরোগ্রামের মাধ্যমে মেমোরিতে আল্ট্রা-ফাস্ট ফাইল ডাউনলোড (Bytes অবজেক্ট হিসেবে সংগ্রহ)
-        file_bytes = await client.download_media(media_object, in_memory=True)
-        if not file_bytes:
+        # পাইরোগ্রামের মাধ্যমে লোকাল ডিরেক্টরিতে ডাউনলোড (১০০% সাকসেস রেট)
+        local_path = await client.download_media(media_object)
+        if not local_path or not os.path.exists(local_path):
             return None
         
-        # পদ্ধতি ১: Catbox.moe (সবচেয়ে স্থিতিশীল ও রেন্ডার/কোয়েব ফ্রেন্ডলি)
+        # পদ্ধতি ১: Catbox.moe
         try:
-            file_object = io.BytesIO(file_bytes)
-            files = {'fileToUpload': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'reqtype': 'fileupload'}
-            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
-            if response.status_code == 200 and response.text.startswith('http'):
-                return response.text.strip()
+            with open(local_path, 'rb') as f:
+                files = {'fileToUpload': ('photo.jpg', f, 'image/jpeg')}
+                data = {'reqtype': 'fileupload'}
+                response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=12)
+                if response.status_code == 200 and response.text.startswith('http'):
+                    return response.text.strip()
         except Exception as e:
             print(f"Catbox failed: {e}")
 
         # পদ্ধতি ২: Pixhost.to
         try:
-            file_object = io.BytesIO(file_bytes)
-            files = {'img': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'content_type': '0'}
-            response = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=10)
-            if response.status_code == 200:
-                res_data = response.json()
-                if 'img_url' in res_data:
-                    return res_data['img_url']
+            with open(local_path, 'rb') as f:
+                files = {'img': ('photo.jpg', f, 'image/jpeg')}
+                data = {'content_type': '0'}
+                response = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=12)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    if 'img_url' in res_data:
+                        return res_data['img_url']
         except Exception as e:
             print(f"Pixhost failed: {e}")
 
-        # পদ্ধতি ৩: Telegraph (ব্যাকআপ)
+        # পদ্ধতি ৩: Telegraph (চূড়ান্ত ব্যাকআপ)
         try:
-            file_object = io.BytesIO(file_bytes)
-            files = {'file': ('photo.jpg', file_object, 'image/jpeg')}
-            response = requests.post('https://telegra.ph/upload', files=files, timeout=10).json()
-            if isinstance(response, list) and len(response) > 0:
-                return "https://telegra.ph" + response[0]['src']
+            with open(local_path, 'rb') as f:
+                files = {'file': ('photo.jpg', f, 'image/jpeg')}
+                response = requests.post('https://telegra.ph/upload', files=files, timeout=12).json()
+                if isinstance(response, list) and len(response) > 0:
+                    return "https://telegra.ph" + response[0]['src']
         except Exception as e:
             print(f"Telegraph failed: {e}")
             
     except Exception as e:
         print(f"All image upload services failed: {e}")
+    finally:
+        # টেম্পোরারি ফাইল ক্লিপআপ (সার্ভার মেমোরি ক্লিন রাখার জন্য অত্যন্ত জরুরি)
+        if local_path and os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
     return None
 
 # অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
@@ -325,7 +333,7 @@ async def handle_start(client, message):
     user_states[chat_id] = {}
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie"),
-         InlineKeyboardButton("📺 ওয়েব系列 পোস্ট", callback_data="type_series")]
+         InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")]
     ])
     
     await client.send_message(chat_id, 
@@ -425,7 +433,7 @@ async def handle_all_messages(client, message):
         await save_lang_and_proceed(client, chat_id, message.text.strip())
         return
 
-    # --- --- ম্যানুয়াল পোস্ট কালেকশন প্রসেস --- ---
+    # --- ম্যানুয়াল পোস্ট কালেকশন প্রসেস ---
     elif state == 'waiting_for_manual_title' and message.text:
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
         user_states[chat_id]['is_manual'] = True
@@ -568,7 +576,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception:
@@ -715,10 +723,10 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- دانلود করার নিয়ম নির্দেশিকা বক্স -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
-    ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
+    ڈاؤنلوڈ بٹنے کلک کرنے کے ساتھ ساتھ ایک نیا ٹیب یا اسپانسر پیج اوپن ہوگا۔ برائے مہربانی پچھلے ٹیب یا مین پیج پر واپس آئیں، آپ کو آپ کا مطلوبہ ویڈیو فائل براہ راست ٹیلی گرام پر مل جائے گا۔
 </div>
 
 <!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
