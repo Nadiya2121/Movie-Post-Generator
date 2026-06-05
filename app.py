@@ -13,7 +13,7 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 # আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
+# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
 AUTO_DELETE_DELAY = 300 
 
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
@@ -32,6 +32,19 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং
 user_states = {}
+
+# টেলিগ্রাফে ফটো আপলোড করার ফাংশন (টেলিগ্রাম ফটো থেকে পাবলিক লিঙ্ক তৈরি করার জন্য)
+def upload_to_telegraph(file_id):
+    try:
+        file_info = bot.get_file(file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        files = {'file': ('photo.jpg', downloaded_file, 'image/jpeg')}
+        response = requests.post('https://telegra.ph/upload', files=files).json()
+        if isinstance(response, list) and len(response) > 0:
+            return "https://telegra.ph" + response[0]['src']
+    except Exception as e:
+        print(f"Telegraph upload failed: {e}")
+    return None
 
 # অটো-ডিলিট থ্রেড ফাংশন
 def delete_messages_after_delay(chat_id, message_ids, delay):
@@ -153,15 +166,15 @@ def handle_query(call):
 # ভাষা সেভ করে পরবর্তী ধাপে যাওয়ার ফাংশন
 def save_lang_and_proceed(chat_id, language):
     user_states[chat_id]['movie_data']['lang'] = language
-    post_type = user_states[chat_id].get('type')
     is_manual = 'is_manual' in user_states[chat_id]
 
     if is_manual:
-        # ম্যানুয়াল এর ক্ষেত্রে পরবর্তী ধাপ হলো জেনরা চাওয়া
+        # ম্যানুয়ালের ক্ষেত্রে পরবর্তী ধাপ হলো জনরা চাওয়া
         user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         bot.send_message(chat_id, "🎭 মুভির জনরা/ক্যাটাগরি পাঠান (উদা: Action, Comedy, Sci-Fi):")
     else:
-        # অটোর ক্ষেত্রে ফাইল ফরোয়ার্ডিং শুরু করা
+        # অটোর ক্ষেত্রে ইমেজ অটো সেট করা আছে, সরাসরি ফাইল চ্যাপ্টারে চলে যাবো
+        post_type = user_states[chat_id].get('type')
         if post_type == 'movie':
             user_states[chat_id]['step'] = 'waiting_for_480p'
             bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
@@ -169,8 +182,8 @@ def save_lang_and_proceed(chat_id, language):
             user_states[chat_id]['step'] = 'waiting_for_season'
             bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
 
-# টেক্সট, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার
-@bot.message_handler(content_types=['text', 'document', 'video'])
+# টেক্সট, ফটো, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার
+@bot.message_handler(content_types=['text', 'document', 'video', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
     
@@ -208,12 +221,34 @@ def handle_all_messages(message):
     elif state == 'waiting_for_manual_genres' and message.content_type == 'text':
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
-        bot.send_message(chat_id, "📸 মুভি পোস্টারের ইমেজ ডিরেক্ট লিঙ্ক (Direct Poster URL) পাঠান:")
+        bot.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    elif state == 'waiting_for_manual_poster' and message.content_type == 'text':
-        user_states[chat_id]['movie_data']['poster'] = message.text.strip()
-        user_states[chat_id]['step'] = 'waiting_for_manual_plot'
-        bot.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
+    # পোস্টার ইমেজ রিসিভার (Telegraph আপলোড)
+    elif state == 'waiting_for_manual_poster' and message.content_type == 'photo':
+        bot.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        photo_id = message.photo[-1].file_id
+        poster_url = upload_to_telegraph(photo_id)
+        
+        if poster_url:
+            user_states[chat_id]['movie_data']['poster'] = poster_url
+            user_states[chat_id]['step'] = 'waiting_for_manual_backdrop'
+            bot.send_message(chat_id, "📸 এবার হোমপেজ হিরো স্লাইডারের জন্য মুভির **চ্যাপ্টা ব্যানার (Landscape Backdrop Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
+        else:
+            bot.send_message(chat_id, "❌ ইমেজ আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার ট্রাই করুন:")
+
+    # স্লাইডার ব্যানার ইমেজ রিসিভার (Telegraph আপলোড + 720 সাইজ প্যারামিটার হ্যাকিং)
+    elif state == 'waiting_for_manual_backdrop' and message.content_type == 'photo':
+        bot.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        photo_id = message.photo[-1].file_id
+        backdrop_url = upload_to_telegraph(photo_id)
+        
+        if backdrop_url:
+            # থিম স্লাইডারের .includes('780') কন্ডিশন ম্যাচ করার জন্য ইউআরএল-এর শেষে সাইজ অ্যাড করা হলো
+            user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=780"
+            user_states[chat_id]['step'] = 'waiting_for_manual_plot'
+            bot.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
+        else:
+            bot.send_message(chat_id, "❌ ইমেজ আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার ট্রাই করুন:")
 
     elif state == 'waiting_for_manual_plot' and message.content_type == 'text':
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
@@ -281,7 +316,7 @@ def handle_all_messages(message):
             else:
                 bot.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র এপিসোডের ফাইলটি ফরোয়ার্ড করুন।")
 
-# TMDB মুভি/সিরিজ সার্চ কুয়েরি
+# TMDB সার্চ কুয়েরি
 def search_tmdb(chat_id, query, post_type):
     is_tv = "tv" if post_type == "series" else "movie"
     url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={requests.utils.quote(query)}"
@@ -318,12 +353,19 @@ def fetch_tmdb_details(chat_id, movie_id, is_tv, message_id):
         year = release_date.split('-')[0] if release_date else 'N/A'
         rating = f"{data.get('vote_average'):.1f}/10" if data.get('vote_average') else 'N/A'
         genres = ", ".join([g['name'] for g in data.get('genres', [])])
+        
+        # হাই-রেজোলিউশন ইমেজ সংগ্রহ করা
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else 'https://via.placeholder.com/300x450'
+        
+        # থিম স্লাইডারের .includes('780') রিকোয়ারমেন্টের জন্য w780 ব্যাকড্রপ নেওয়া হলো
+        backdrop = f"https://image.tmdb.org/t/p/w780{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/780x439'
+        
         plot = data.get('overview', 'No description available.')
 
         user_states[chat_id]['movie_data'] = {
             'title': f"{title} ({year})",
             'poster': poster,
+            'backdrop': backdrop,
             'rating': rating,
             'genres': genres,
             'plot': plot
@@ -347,9 +389,13 @@ def generate_movie_html_output(chat_id):
     link_720 = f"https://t.me/{BOT_USERNAME}?start={key_720}" if key_720 else ""
     link_1080 = f"https://t.me/{BOT_USERNAME}?start={key_1080}" if key_1080 else ""
 
+    # ইমেজ ব্লক জেনারেটর (১ম ইমেজ পোস্টার, ২য় ইমেজ স্লাইডার ব্যাকড্রপ - যা মুভি ভিউতে হিডেন থাকবে)
     html_code = f"""<!-- MOVIE POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <img src="{data['poster']}" style="max-width: 350px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']}"/>
+    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
+    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
+    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
+    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
 </div>
 
 <div class="info-text" style="display: none;">
@@ -397,7 +443,10 @@ def generate_series_html_output(chat_id):
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <img src="{data['poster']}" style="max-width: 350px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']}"/>
+    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
+    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
+    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
+    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
 </div>
 
 <div class="info-text" style="display: none;">
