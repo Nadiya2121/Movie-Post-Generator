@@ -41,9 +41,77 @@ http_session = None
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
 web_app = Flask(__name__)
 
+# --- ইন-মেমোরি অস্থায়ী কোড স্টোরেজ ডিকশনারি ---
+temp_codes = {}
+
 @web_app.route('/')
 def home():
     return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
+
+# --- এক ক্লিকে কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
+@web_app.route('/code/<code_id>')
+def view_code(code_id):
+    code_data = None
+    if db_mongo is not None:
+        try:
+            doc = db_mongo['shared_codes'].find_one({'_id': code_id})
+            if doc:
+                code_data = doc.get('code')
+        except Exception:
+            pass
+    
+    if not code_data:
+        code_data = temp_codes.get(code_id)
+        
+    if not code_data:
+        return "<h3>❌ কোডটি পাওয়া যায়নি অথবা মেয়াদ শেষ হয়ে গেছে!</h3>", 404
+        
+    escaped_html = html.escape(code_data)
+    
+    web_page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copy Post Code - BD Movie Zone</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {{ background-color: #0d0e12; color: #f1f5f9; font-family: 'Poppins', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }}
+        .container {{ background: #111217; border: 1px solid #222; border-radius: 12px; padding: 30px; max-width: 800px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); box-sizing: border-box; }}
+        h1 {{ font-size: 20px; color: #38bdf8; margin-top: 0; text-align: center; border-bottom: 1px solid #222; padding-bottom: 15px; }}
+        .btn {{ background: linear-gradient(135deg, #38bdf8, #0284c7); color: #000; font-weight: bold; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: 0.3s; display: block; width: 100%; margin-bottom: 20px; text-align: center; font-family: 'Poppins', sans-serif; }}
+        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 5px 15px rgba(56, 189, 248, 0.4); }}
+        pre {{ background: #07080a; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 400px; border: 1px solid #1e293b; font-size: 13px; color: #a7f3d0; }}
+        code {{ font-family: 'Courier New', Courier, monospace; }}
+        .footer {{ margin-top: 20px; font-size: 12px; color: #4b5563; text-align: center; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 BD Movie Zone - Blogger HTML Code</h1>
+        <button class="btn" id="copyBtn" onclick="copyToClipboard()">📋 Click to Copy Code</button>
+        <pre><code id="codeBlock">{escaped_html}</code></pre>
+    </div>
+    <div class="footer">Developed by BD Movie Zone Bot System</div>
+    <script>
+        function copyToClipboard() {{
+            var codeText = document.getElementById("codeBlock").innerText;
+            navigator.clipboard.writeText(codeText).then(function() {{
+                var btn = document.getElementById("copyBtn");
+                btn.innerHTML = "✅ Code Copied Successfully!";
+                btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+                setTimeout(function() {{
+                    btn.innerHTML = "📋 Click to Copy Code";
+                    btn.style.background = "linear-gradient(135deg, #38bdf8, #0284c7)";
+                }}, 2000);
+            }}).catch(function(err) {{
+                alert("Failed to copy: " + err);
+            }});
+        }}
+    </script>
+</body>
+</html>"""
+    return web_page
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -57,45 +125,40 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- স্মার্ট কোড সেন্ডার এবং অটো-স্প্লিটার মেকানিজম ---
+# --- স্মার্ট কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
 async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
-    # Raw HTML কোডকে সরাসরি Markdown কোড ব্লকে নেওয়া হলো (যাতে এস্কেপ করার ফলে সাইজ বৃদ্ধি না পায়)
-    markdown_code_block = f"```html\n{html_code}\n```"
+    # ইউনিক আইডি তৈরি
+    code_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
     
-    # কোড লিমিটের ভেতরে থাকলে এক মেসেজে কোড ব্লক আকারে পাঠাবে
-    if len(markdown_code_block) <= 4096:
+    # ডেটাবেজে সেভ (MongoDB থাকলে সেখানে, না থাকলে ইন-মেমোরি)
+    if db_mongo is not None:
         try:
-            await client.send_message(chat_id, markdown_code_block, parse_mode=ParseMode.MARKDOWN)
-            return
+            db_mongo['shared_codes'].update_one(
+                {'_id': code_id},
+                {'$set': {'code': html_code}},
+                upsert=True
+            )
         except Exception as e:
-            print(f"Direct markdown block failed: {e}. Trying HTML escape backup...")
-            try:
-                escaped_code = html.escape(html_code)
-                await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
-                return
-            except Exception:
-                pass
+            print(f"MongoDB save code failed: {e}")
+            temp_codes[code_id] = html_code
+    else:
+        temp_codes[code_id] = html_code
 
-    # কোডটি ৪০০০ অক্ষরের বেশি হলে টেলিগ্রাম মেসেজ রিজেক্ট করে, তাই এটি নিরাপদ পার্টে ভাগ করে মেসেজেই পাঠানো হবে
-    print("HTML code length exceeds limit. Splitting into multiple messages...")
-    parts = []
-    current_part = ""
-    for line in html_code.split("\n"):
-        if len(current_part) + len(line) + 20 > 3800:
-            parts.append(current_part)
-            current_part = line + "\n"
-        else:
-            current_part += line + "\n"
-    if current_part:
-        parts.append(current_part)
-        
-    for i, part in enumerate(parts):
-        part_block = f"```html\n{part}\n```"
-        await client.send_message(
-            chat_id, 
-            f"📋 **কোড পার্ট {i+1} (কপি করে পর পর ব্লগারে বসিয়ে দিন):**\n{part_block}", 
-            parse_mode=ParseMode.MARKDOWN
-        )
+    # ডোমেইন লিংক জেনারেট (আপনার Koyeb ডোমেইন URL এখানে সেট হবে)
+    app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
+    share_link = f"{app_url}/code/{code_id}"
+
+    # ইনলাইন বাটনে কোড লিংক পাঠানো
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 এক ক্লিকে কোড কপি করুন", url=share_link)]
+    ])
+    
+    await client.send_message(
+        chat_id,
+        "🔗 **আপনার ব্লগার HTML কোডটি প্রস্তুত করা হয়েছে!**\n\n"
+        "নিচের বাটনে ক্লিক করে কোড পেইজে যান এবং সেখান থেকে এক ক্লিকে কোডটি কপি করে সরাসরি ব্লগারে বসিয়ে দিন।",
+        reply_markup=markup
+    )
 
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
@@ -819,7 +882,7 @@ async def generate_movie_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা باکس (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
 <div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
