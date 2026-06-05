@@ -6,6 +6,7 @@ from telebot import types
 from flask import Flask
 import random
 import json
+import io # Python 3.13 ফাইল স্ট্রিম হ্যান্ডেল করার জন্য অত্যন্ত জরুরি
 
 # --- কনফিগারেশন এরিয়া ---
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
@@ -116,21 +117,27 @@ def upload_image_to_cloud(file_id):
         file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # পদ্ধতি ১: Catbox.moe
+        # পদ্ধতি ১: Catbox (Python 3.13 এর জন্য io.BytesIO মেমোরি স্ট্রিম ব্যবহার করা হয়েছে)
         try:
-            files = {'fileToUpload': ('photo.jpg', downloaded_file, 'image/jpeg')}
+            # বাইট ফাইলটিকে অবজেক্ট ফাইলে রূপান্তর করা হচ্ছে
+            file_object = io.BytesIO(downloaded_file)
+            files = {'fileToUpload': ('photo.jpg', file_object, 'image/jpeg')}
             data = {'reqtype': 'fileupload'}
-            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=15)
+            response = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
             if response.status_code == 200 and response.text.startswith('http'):
                 return response.text.strip()
         except Exception as e:
-            print(f"Catbox upload failed, trying backup: {e}")
+            print(f"Catbox upload failed: {e}")
 
-        # পদ্ধতি ২: Telegraph (ব্যাকআপ)
-        files = {'file': ('photo.jpg', downloaded_file, 'image/jpeg')}
-        response = requests.post('https://telegra.ph/upload', files=files, timeout=15).json()
-        if isinstance(response, list) and len(response) > 0:
-            return "https://telegra.ph" + response[0]['src']
+        # পদ্ধতি ২: Telegraph (ব্যাকআপ হিসেবে io.BytesIO স্ট্রিম ব্যবহার করা হয়েছে)
+        try:
+            file_object = io.BytesIO(downloaded_file)
+            files = {'file': ('photo.jpg', file_object, 'image/jpeg')}
+            response = requests.post('https://telegra.ph/upload', files=files, timeout=10).json()
+            if isinstance(response, list) and len(response) > 0:
+                return "https://telegra.ph" + response[0]['src']
+        except Exception as e:
+            print(f"Telegraph upload failed: {e}")
             
     except Exception as e:
         print(f"All image upload services failed: {e}")
@@ -333,7 +340,7 @@ def owner_stats(message):
 
 # ==================== বাটন ও কুয়েরি হ্যান্ডলারস ====================
 
-# callback query বাটন হ্যান্ডলার (ইউনিক এবং গ্লোবাল)
+# callback query বাটন হ্যান্ডলার
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     chat_id = call.message.chat.id
@@ -390,7 +397,7 @@ def handle_query(call):
 
 # ==================== মেসেজ প্রসেসিং এরিয়া ====================
 
-# টেক্সট, ফটো, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার (ইউনিক এবং গ্লোবাল)
+# টেক্সট, ফটো, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার
 @bot.message_handler(content_types=['text', 'document', 'video', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
@@ -658,7 +665,7 @@ def generate_movie_html_output(chat_id):
 </div>
 <!-- MOVIE POST END -->"""
 
-    bot.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    bot.send_message(chat_id, "🎉 **আপনলর মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     bot.send_message(chat_id, f"`{html_code}`", parse_mode="Markdown")
     user_states[chat_id] = {} 
 
@@ -713,7 +720,7 @@ def generate_series_html_output(chat_id):
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
-<!-- আধুনিক এবং কাস্টম কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
+<!-- কাস্টম নিওন গ্রিড ডাউনলোড এরিয়া -->
 <div style="background: #0d0e12; padding: 25px; border-radius: 12px; border: 1.5px solid #222; margin: 20px 0;">
     <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center; font-size: 16px; letter-spacing: 0.5px; border-bottom: 2px solid #cc0000; display: inline-block; padding-bottom: 5px;">📥 Download Episodes (Season {season}):</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
