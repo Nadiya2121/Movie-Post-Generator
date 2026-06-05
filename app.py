@@ -6,13 +6,13 @@ from telebot import types
 from flask import Flask
 
 # --- কনফিগারেশন এরিয়া ---
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_TELEGRAM_BOT_TOKEN') # পরিবেশ ভেরিয়েবল বা সরাসরি টোকেন দিন
-TMDB_API_KEY = os.environ.get('TMDB_API_KEY', 'YOUR_TMDB_API_KEY') # TMDB এপিআই কী
-BOT_USERNAME = os.environ.get('BOT_USERNAME', 'YOUR_BOT_USERNAME') # @ চিহ্ন ছাড়া বটের ইউজারনেম
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') # পরিবেশ ভেরিয়েবল বা সরাসরি টোকেন দিন
+TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') # TMDB এপিআই কী
+BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') # @ চিহ্ন ছাড়া বটের ইউজারনেম
 
 # আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (আইডিটি অবশ্যই -100 দিয়ে শুরু হতে হবে)
 # উদাহরণ: -100123456789 (চ্যানেলে বটকে অ্যাডমিন বানিয়ে পোস্ট পারমিশন দিতে হবে)
-DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -100123456789)) 
+DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
 # ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
 AUTO_DELETE_DELAY = 300 
