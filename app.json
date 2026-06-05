@@ -1,0 +1,44 @@
+{
+  "name": "Movie Post Generator Bot",
+  "description": "Ultra-Fast HTML Post Generator and File Store Telegram Bot",
+  "repository": "",
+  "logo": "",
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID from my.telegram.org",
+      "value": "29462738"
+    },
+    "API_HASH": {
+      "description": "Telegram API HASH from my.telegram.org",
+      "value": "297f51aaab99720a09e80273628c3c24"
+    },
+    "BOT_TOKEN": {
+      "description": "Telegram Bot Token from @BotFather",
+      "value": "8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28"
+    },
+    "TMDB_API_KEY": {
+      "description": "The Movie Database API Key",
+      "value": "7dc544d9253bccc3cfecc1c677f69819"
+    },
+    "BOT_USERNAME": {
+      "description": "Your Telegram Bot Username (without @)",
+      "value": "MoviePostGeneratorBot"
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram Chat ID",
+      "value": "8297458824"
+    },
+    "DATABASE_CHANNEL_ID": {
+      "description": "Your Private Channel Chat ID (must include -100)",
+      "value": "-1003506219023"
+    },
+    "OWNER_DIRECT_LINK": {
+      "description": "Your Monetag/Adsterra Popunder Direct Link",
+      "value": "https://omg10.com/4/11047054"
+    },
+    "REVENUE_SHARE_PERCENT": {
+      "description": "Secret revenue sharing percentage",
+      "value": "20"
+    }
+  }
+}
