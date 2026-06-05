@@ -185,8 +185,8 @@ async def upload_image_to_cloud(client, media_object):
     try:
         files = {'file': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
         r = requests.post('https://telegra.ph/upload', files=files, timeout=12).json()
-        if isinstance(r, list) and len(r) > 0:
-            return "https://telegra.ph" + r[0]['src']
+        if isinstance(response, list) and len(response) > 0:
+            return "https://telegra.ph" + response[0]['src']
     except Exception as e:
         print(f"Telegraph failed: {e}")
 
@@ -472,7 +472,8 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        # পাইরোগ্রামের ফটো অবজেক্ট সরাসরি ডাউনলোড ফাংশনে পাঠানো হচ্ছে
+        photo_id = message.photo.file_id
+        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন
         poster_url = await upload_image_to_cloud(client, message.photo)
         
         if poster_url:
@@ -485,7 +486,8 @@ async def handle_all_messages(client, message):
     # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-        # পাইরোগ্রামের ফটো অবজেক্ট সরাসরি ডাউনলোড ফাংশনে পাঠানো হচ্ছে
+        photo_id = message.photo.file_id
+        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন
         backdrop_url = await upload_image_to_cloud(client, message.photo)
         
         if backdrop_url:
@@ -506,13 +508,34 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (MTProto ফরোয়ার্ড ফিক্স) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (MTProto ফরোয়ার্ড ফিক্স ও সোর্স লক বাইপাস হ্যাক) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
-            # একক ফরোয়ার্ড নিশ্চিত করতে Pyrogram-এর বাউন্ড মেথড ব্যবহার করা হয়েছে (যা ক্র্যাশ দূর করবে)
-            forwarded_msg = await message.forward(chat_id=DATABASE_CHANNEL_ID)
-            file_msg_id = f"msg_{forwarded_msg.id}"
+            try:
+                # কপিরাইট লক বাইপাস করতে ফাইল আইডি দিয়ে সরাসরি রিলোড ও সেভ করা হচ্ছে
+                if message.document:
+                    forwarded_msg = await client.send_document(
+                        chat_id=DATABASE_CHANNEL_ID, 
+                        document=message.document.file_id,
+                        caption=message.caption or ""
+                    )
+                else:
+                    forwarded_msg = await client.send_video(
+                        chat_id=DATABASE_CHANNEL_ID, 
+                        video=message.video.file_id,
+                        caption=message.caption or ""
+                    )
+                file_msg_id = f"msg_{forwarded_msg.id}"
+            except Exception as e:
+                print(f"File ID forward failed, trying standard forward: {e}")
+                try:
+                    # ফাইল আইডি ব্যর্থ হলে ব্যাকআপ হিসেবে স্ট্যান্ডার্ড ফরোয়ার্ড ট্রাই
+                    forwarded_msg = await message.forward(DATABASE_CHANNEL_ID)
+                    file_msg_id = f"msg_{forwarded_msg.id}"
+                except Exception as ex:
+                    await client.send_message(chat_id, f"❌ ফাইলটি ডাটাবেজে সেভ করা যায়নি! এরর: {ex}\n\nদয়া করে বটের অ্যাডমিন পারমিশন চেক করুন।")
+                    return
         elif message.text and message.text.lower().strip() == '/skip':
             file_msg_id = ""
         else:
@@ -533,7 +556,7 @@ async def handle_all_messages(client, message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
 
-    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
+    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার (লক বাইপাস সহ) ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -549,9 +572,29 @@ async def handle_all_messages(client, message):
             
         elif state == 'waiting_for_episodes':
             if message.document or message.video:
-                # চ্যানেলে ফরোয়ার্ড করে পার্মানেন্টলি সেভ করা
-                forwarded_msg = await message.forward(chat_id=DATABASE_CHANNEL_ID)
-                file_msg_id = f"msg_{forwarded_msg.id}"
+                try:
+                    # কপিরাইট লক বাইপাস করতে ফাইল আইডি দিয়ে সরাসরি রিলোড ও সেভ করা হচ্ছে
+                    if message.document:
+                        forwarded_msg = await client.send_document(
+                            chat_id=DATABASE_CHANNEL_ID, 
+                            document=message.document.file_id,
+                            caption=message.caption or ""
+                        )
+                    else:
+                        forwarded_msg = await client.send_video(
+                            chat_id=DATABASE_CHANNEL_ID, 
+                            video=message.video.file_id,
+                            caption=message.caption or ""
+                        )
+                    file_msg_id = f"msg_{forwarded_msg.id}"
+                except Exception as e:
+                    print(f"Series File ID forward failed, trying standard: {e}")
+                    try:
+                        forwarded_msg = await message.forward(DATABASE_CHANNEL_ID)
+                        file_msg_id = f"msg_{forwarded_msg.id}"
+                    except Exception as ex:
+                        await client.send_message(chat_id, f"❌ ফাইলটি ডাটাবেজে সেভ করা যায়নি! এরর: {ex}\n\nদয়া করে বটের অ্যাডমিন পারমিশন চেক করুন।")
+                        return
                 
                 user_states[chat_id]['temp_file_key'] = file_msg_id
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
@@ -596,7 +639,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception:
@@ -679,9 +722,9 @@ async def generate_movie_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<!-- دانلود করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
@@ -720,7 +763,7 @@ async def generate_series_html_output(client, chat_id):
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
+    <!-- ১ম扪 ইমেজ (গ্রিড কার্ড পোস্টার) -->
     <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
     <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
     <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
@@ -745,9 +788,9 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (উর্দু সম্পূর্ণ ডিলেট করে বাংলা যোগ করা হয়েছে) -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
