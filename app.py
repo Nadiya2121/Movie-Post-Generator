@@ -125,7 +125,7 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- স্মার্ট কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
+# --- スマート কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
 async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
     # ইউনিক আইডি তৈরি
     code_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
@@ -828,7 +828,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         print(f"Async TMDB Details Error: {e}")
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
+# মুভি কোড জেনারেটর (সংশোধিত এসিঙ্ক্রোনাস নিরাপদ বাটন ইভেন্ট সিস্টেম)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -843,18 +843,18 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
-    # ডাইনামিক বাটন জেনারেটর (আলাদা পাইথন ভেরিয়েবলে তৈরি করা হয়েছে যাতে কোনো সিনট্যাক্স এরর না আসে)
+    # নিরাপদ ডাইনামিক বাটন জেনারেটর (Standard URL-সহ যা CSP সিকিউরিটি ব্লক করে না)
     btn_480_html = ""
     if link_480:
-        btn_480_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_480}\', \'{link_480}\')" target="_self" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
+        btn_480_html = f'<a href="{link_480}" data-ad="{ad_480}" class="download-btn" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
 
     btn_720_html = ""
     if link_720:
-        btn_720_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_720}\', \'{link_720}\')" target="_self" style="background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 720p (HD)</span></a>'
+        btn_720_html = f'<a href="{link_720}" data-ad="{ad_720}" class="download-btn" style="background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 720p (HD)</span></a>'
 
     btn_1080_html = ""
     if link_1080:
-        btn_1080_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_1080}\', \'{link_1080}\')" target="_self" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
+        btn_1080_html = f'<a href="{link_1080}" data-ad="{ad_1080}" class="download-btn" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
 
     html_code = f"""<!-- MOVIE POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
@@ -907,28 +907,32 @@ async def generate_movie_html_output(client, chat_id):
     </div>
 </div>
 
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
+<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক (CSS এবং CSP ফ্রেন্ডলি ইভেন্ট লিসেনার) -->
 <script>
-function handleDownloadClick(element, adLink, fileLink) {{
-    if (!adLink || adLink === 'None' || adLink === '') {{
-        window.location.href = fileLink;
-        return;
-    }}
-    if (element.getAttribute('data-clicked') === 'true') {{
-        window.location.href = fileLink;
-    }} else {{
-        window.open(adLink, '_blank');
-        element.setAttribute('data-clicked', 'true');
-        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-        element.style.borderColor = '#10b981';
-        element.style.color = '#fff';
+document.querySelectorAll('.download-btn').forEach(function(element) {{
+    element.addEventListener('click', function(e) {{
+        var adLink = this.getAttribute('data-ad');
+        var fileLink = this.getAttribute('href');
         
-        var mainText = element.querySelector('.btn-label-text');
-        if (mainText) {{
-            mainText.innerHTML = '📥 Click Again to Download';
+        if (!adLink || adLink === 'None' || adLink === '') {{
+            return; // adLink না থাকলে সরাসরি Telegram URL ওপেন করবে
         }}
-    }}
-}}
+        
+        if (this.getAttribute('data-clicked') !== 'true') {{
+            e.preventDefault(); // প্রথম ক্লিকে Redirect বন্ধ করবে
+            window.open(adLink, '_blank');
+            this.setAttribute('data-clicked', 'true');
+            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            this.style.borderColor = '#10b981';
+            this.style.color = '#fff';
+            
+            var mainText = this.querySelector('.btn-label-text');
+            if (mainText) {{
+                mainText.innerHTML = '📥 Click Again to Download';
+            }}
+        }}
+    }});
+}});
 </script>
 <!-- MOVIE POST END -->"""
 
@@ -940,7 +944,7 @@ function handleDownloadClick(element, adLink, fileLink) {{
     
     user_states[chat_id] = {} 
 
-# ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
+# ওয়েব সিরিজ কোড জেনারেটর (সংশোধিত এসিঙ্ক্রোনাস নিরাপদ বাটন ইভেন্ট সিস্টেম)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -951,10 +955,9 @@ async def generate_series_html_output(client, chat_id):
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
         ad_link = get_button_ad_link(chat_id)
-        onclick_attr = f"onclick=\"handleDownloadClick(this, '{ad_link}', '{link}')\"" if ad_link else ""
         
-        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড
-        episode_buttons_html += f"""        <a href="javascript:void(0);" {onclick_attr} target="_self" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
+        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড (Standard URL-সহ)
+        episode_buttons_html += f"""        <a href="{link}" data-ad="{ad_link}" class="download-btn series-btn" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
             <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;" class="btn-sub-text">Download Link</span>
             <span style="font-size: 13px; color: #fff;" class="btn-label-text">{ep['name']}</span>
         </a>\n"""
@@ -1008,28 +1011,32 @@ async def generate_series_html_output(client, chat_id):
 {episode_buttons_html}    </div>
 </div>
 
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
+<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক (CSS এবং CSP ফ্রেন্ডলি ইভেন্ট লিসেনার) -->
 <script>
-function handleDownloadClick(element, adLink, fileLink) {{
-    if (!adLink || adLink === 'None' || adLink === '') {{
-        window.location.href = fileLink;
-        return;
-    }}
-    if (element.getAttribute('data-clicked') === 'true') {{
-        window.location.href = fileLink;
-    }} else {{
-        window.open(adLink, '_blank');
-        element.setAttribute('data-clicked', 'true');
-        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-        element.style.borderColor = '#10b981';
-        element.style.color = '#fff';
+document.querySelectorAll('.download-btn').forEach(function(element) {{
+    element.addEventListener('click', function(e) {{
+        var adLink = this.getAttribute('data-ad');
+        var fileLink = this.getAttribute('href');
         
-        var subText = element.querySelector('.btn-sub-text');
-        var mainText = element.querySelector('.btn-label-text');
-        if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
-        if (mainText) mainText.innerHTML = 'Click Again';
-    }}
-}}
+        if (!adLink || adLink === 'None' || adLink === '') {{
+            return; // adLink না থাকলে সরাসরি Telegram URL ওপেন করবে
+        }}
+        
+        if (this.getAttribute('data-clicked') !== 'true') {{
+            e.preventDefault(); // প্রথম ক্লিকে Redirect বন্ধ করবে
+            window.open(adLink, '_blank');
+            this.setAttribute('data-clicked', 'true');
+            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            this.style.borderColor = '#10b981';
+            this.style.color = '#fff';
+            
+            var subText = this.querySelector('.btn-sub-text');
+            var mainText = this.querySelector('.btn-label-text');
+            if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
+            if (mainText) mainText.innerHTML = 'Click Again';
+        }}
+    }});
+}});
 </script>
 <!-- TV SHOW POST END -->"""
 
