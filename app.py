@@ -13,10 +13,9 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 # আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
+# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
 
-# Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
 web_app = Flask(__name__)
 
 @web_app.route('/')
@@ -30,7 +29,7 @@ def run_web_server():
 # Telebot ইনিশিয়েট করা
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# মাল্টি-ইউজার স্টেট ট্র্যাকিং
+# মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
 
 # টেলিগ্রাফে ফটো আপলোড করার ফাংশন (টেলিগ্রাম ফটো থেকে পাবলিক লিঙ্ক তৈরি করার জন্য)
@@ -74,7 +73,6 @@ def handle_start(message):
     chat_id = message.chat.id
     text = message.text.strip()
     
-    # ইউজার লিঙ্কে ক্লিক করে আসলে
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -96,7 +94,6 @@ def handle_start(message):
                 bot.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
         return
 
-    # সাধারণ ক্যাটাগরি প্যানেল স্টার্ট
     user_states[chat_id] = {}
     markup = types.InlineKeyboardMarkup(row_width=2)
     btn_movie = types.InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie")
@@ -148,32 +145,29 @@ def handle_query(call):
         is_tv = parts[2] == "tv"
         fetch_tmdb_details(chat_id, movie_id, is_tv, call.message.message_id)
 
-    # ল্যাঙ্গুয়েজ সিলেকশন কলব্যাক
     elif call.data.startswith("lang_"):
         selected_lang = call.data.split("_")[1]
         if selected_lang == "custom":
             user_states[chat_id]['step'] = 'waiting_for_custom_lang'
-            bot.send_message(chat_id, "✏️ আপনার কাস্টম ল্যাঙ্গুয়েজটি টাইপ করে পাঠান (উদা: Tamil [Hindi-Synced]):")
+            bot.send_message(chat_id, "✏️ আপনার কাস্টম ল্যাঙ্গুয়েজটি টাইপ করে পাঠান (উদা: Tamil [Hindi]):")
         else:
             save_lang_and_proceed(chat_id, selected_lang)
         
     elif call.data == "generate_series_code":
-        if chat_id in user_states and 'episodes' in user_states[chat_id]:
+        if chat_id in user_states and 'episodes' in user_states[chat_id] and len(user_states[chat_id]['episodes']) > 0:
             generate_series_html_output(chat_id)
         else:
-            bot.answer_callback_query(call.id, "কোনো এপিসোড ফরোয়ার্ড করা হয়নি!", show_alert=True)
+            bot.answer_callback_query(call.id, "কোনো ফাইল ফরোয়ার্ড করা হয়নি!", show_alert=True)
 
-# ভাষা সেভ করে পরবর্তী ধাপে যাওয়ার ফাংশন
+# ল্যাঙ্গুয়েজ প্রসেস পরবর্তী ধাপ
 def save_lang_and_proceed(chat_id, language):
     user_states[chat_id]['movie_data']['lang'] = language
     is_manual = 'is_manual' in user_states[chat_id]
 
     if is_manual:
-        # ম্যানুয়ালের ক্ষেত্রে পরবর্তী ধাপ হলো জনরা চাওয়া
         user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         bot.send_message(chat_id, "🎭 মুভির জনরা/ক্যাটাগরি পাঠান (উদা: Action, Comedy, Sci-Fi):")
     else:
-        # অটোর ক্ষেত্রে ইমেজ অটো সেট করা আছে, সরাসরি ফাইল চ্যাপ্টারে চলে যাবো
         post_type = user_states[chat_id].get('type')
         if post_type == 'movie':
             user_states[chat_id]['step'] = 'waiting_for_480p'
@@ -195,18 +189,18 @@ def handle_all_messages(message):
     state = user_states[chat_id]['step']
     post_type = user_states[chat_id].get('type')
 
-    # ১. অটোমেটিক সার্চ প্রসেস
+    # সার্চ প্রসেস
     if state == 'waiting_for_search' and message.content_type == 'text':
         query = message.text.strip()
         search_tmdb(chat_id, query, post_type)
         return
 
-    # ২. কাস্টম ল্যাঙ্গুয়েজ রিসিভার
+    # কাস্টম ল্যাঙ্গুয়েজ প্রসেস
     elif state == 'waiting_for_custom_lang' and message.content_type == 'text':
         save_lang_and_proceed(chat_id, message.text.strip())
         return
 
-    # --- ৩. ম্যানুয়াল ডাটা কালেকশন প্রসেস ---
+    # --- ম্যানুয়াল পোস্ট কালেকশন প্রসেস ---
     elif state == 'waiting_for_manual_title' and message.content_type == 'text':
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
         user_states[chat_id]['is_manual'] = True
@@ -223,32 +217,32 @@ def handle_all_messages(message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         bot.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # পোস্টার ইমেজ রিসিভার (Telegraph আপলোড)
+    # ম্যানুয়াল পোস্টার রিসিভার (টেলিগ্রাফ)
     elif state == 'waiting_for_manual_poster' and message.content_type == 'photo':
-        bot.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        bot.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে...")
         photo_id = message.photo[-1].file_id
         poster_url = upload_to_telegraph(photo_id)
         
         if poster_url:
             user_states[chat_id]['movie_data']['poster'] = poster_url
             user_states[chat_id]['step'] = 'waiting_for_manual_backdrop'
-            bot.send_message(chat_id, "📸 এবার হোমপেজ হিরো স্লাইডারের জন্য মুভির **চ্যাপ্টা ব্যানার (Landscape Backdrop Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
+            bot.send_message(chat_id, "📸 এবার হিরো স্লাইডারের জন্য মুভির **চ্যাপ্টা ব্যানার (Landscape Backdrop Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
         else:
-            bot.send_message(chat_id, "❌ ইমেজ আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার ট্রাই করুন:")
+            bot.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
-    # স্লাইডার ব্যানার ইমেজ রিসিভার (Telegraph আপলোড + 720 সাইজ প্যারামিটার হ্যাকিং)
+    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.content_type == 'photo':
-        bot.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        bot.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে...")
         photo_id = message.photo[-1].file_id
         backdrop_url = upload_to_telegraph(photo_id)
         
         if backdrop_url:
-            # থিম স্লাইডারের .includes('780') কন্ডিশন ম্যাচ করার জন্য ইউআরএল-এর শেষে সাইজ অ্যাড করা হলো
-            user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=780"
+            # স্লাইডারের কন্ডিশন ম্যাচ করানোর জন্য ?size=original কুয়েরি হ্যাক
+            user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=original"
             user_states[chat_id]['step'] = 'waiting_for_manual_plot'
             bot.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
         else:
-            bot.send_message(chat_id, "❌ ইমেজ আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার ট্রাই করুন:")
+            bot.send_message(chat_id, "❌ ব্যানার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
     elif state == 'waiting_for_manual_plot' and message.content_type == 'text':
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
@@ -261,7 +255,7 @@ def handle_all_messages(message):
             bot.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- ৪. মুভির ফাইল ফরোয়ার্ড রিসিভার ---
+    # --- মুভির ডাউনলোড ফাইল রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.content_type in ['document', 'video']:
@@ -287,8 +281,8 @@ def handle_all_messages(message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             generate_movie_html_output(chat_id)
 
-    # --- ৫. ওয়েব সিরিজের ফাইল ফরোয়ার্ড রিসিভার ---
-    elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes']:
+    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
+    elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.content_type == 'text':
             user_states[chat_id]['season'] = message.text.strip()
             user_states[chat_id]['episodes'] = []
@@ -298,23 +292,37 @@ def handle_all_messages(message):
             markup.add(types.InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code"))
             bot.send_message(chat_id, 
                              f"🎬 **সিজন {message.text.strip()} সেট করা হয়েছে!**\n\n"
-                             "এখন প্রথম এপিসোড থেকে শুরু করে একে একে ফাইলগুলো ফরোয়ার্ড করুন।\n"
-                             "সবগুলো ফাইল ফরোয়ার্ড করা শেষ হলে নিচের বাটনটিতে ক্লিক করবেন:", reply_markup=markup)
+                             "এখন এপিসোড বা কমপ্লিট ব্যাচ জিপ ফাইলটি ফরোয়ার্ড করুন:", reply_markup=markup)
             
         elif state == 'waiting_for_episodes':
             if message.content_type in ['document', 'video']:
+                # ডাটাবেজে ফাইল পাঠানো হচ্ছে
                 forwarded_msg = bot.forward_message(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_id=message.message_id)
                 file_msg_id = f"msg_{forwarded_msg.message_id}"
                 
-                ep_num = len(user_states[chat_id]['episodes']) + 1
-                user_states[chat_id]['episodes'].append({'num': ep_num, 'key': file_msg_id})
-                
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code"))
-                bot.send_message(chat_id, f"✅ **Episode {ep_num} ফাইল যুক্ত হয়েছে!**\n"
-                                          f"পরের এপিসোড ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটন চাপুন:", reply_markup=markup)
+                # পরবর্তী ধাপে ইউজারের কাছে ফাইলের কাস্টম নাম চাওয়া
+                user_states[chat_id]['temp_file_key'] = file_msg_id
+                user_states[chat_id]['step'] = 'waiting_for_ep_name'
+                bot.send_message(chat_id, "📝 **ফাইলটি যুক্ত হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
+                                          "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
             else:
-                bot.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র এপিসোডের ফাইলটি ফরোয়ার্ড করুন।")
+                bot.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
+
+        elif state == 'waiting_for_ep_name' and message.content_type == 'text':
+            ep_title = message.text.strip()
+            file_key = user_states[chat_id]['temp_file_key']
+            
+            user_states[chat_id]['episodes'].append({
+                'name': ep_title,
+                'key': file_key
+            })
+            
+            user_states[chat_id]['step'] = 'waiting_for_episodes'
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code"))
+            bot.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
+                                      f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
 
 # TMDB সার্চ কুয়েরি
 def search_tmdb(chat_id, query, post_type):
@@ -354,12 +362,9 @@ def fetch_tmdb_details(chat_id, movie_id, is_tv, message_id):
         rating = f"{data.get('vote_average'):.1f}/10" if data.get('vote_average') else 'N/A'
         genres = ", ".join([g['name'] for g in data.get('genres', [])])
         
-        # হাই-রেজোলিউশন ইমেজ সংগ্রহ করা
+        # থিমের প্রয়োজনীয়তা অনুযায়ী হাই-রেজোলিউশন ইমেজ সংগ্রহ করা
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else 'https://via.placeholder.com/300x450'
-        
-        # থিম স্লাইডারের .includes('780') রিকোয়ারমেন্টের জন্য w780 ব্যাকড্রপ নেওয়া হলো
-        backdrop = f"https://image.tmdb.org/t/p/w780{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/780x439'
-        
+        backdrop = f"https://image.tmdb.org/t/p/original{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
         plot = data.get('overview', 'No description available.')
 
         user_states[chat_id]['movie_data'] = {
@@ -371,9 +376,8 @@ def fetch_tmdb_details(chat_id, movie_id, is_tv, message_id):
             'plot': plot
         }
 
-        # ভাষা চয়ন করার স্টেট সেট করা
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
-        send_language_picker(chat_id, f"✅ মুভি সিলেক্ট হয়েছে: **{title}**\n\n🗣 অনুগ্রহ করে ভাষাটি সিলেক্ট করুন:")
+        send_language_picker(chat_id, f"✅ সিলেক্ট হয়েছে: **{title}**\n\n🗣 অনুগ্রহ করে ভাষাটি সিলেক্ট করুন:")
             
     except Exception:
         bot.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
@@ -389,7 +393,7 @@ def generate_movie_html_output(chat_id):
     link_720 = f"https://t.me/{BOT_USERNAME}?start={key_720}" if key_720 else ""
     link_1080 = f"https://t.me/{BOT_USERNAME}?start={key_1080}" if key_1080 else ""
 
-    # ইমেজ ব্লক জেনারেটর (১ম ইমেজ পোস্টার, ২য় ইমেজ স্লাইডার ব্যাকড্রপ - যা মুভি ভিউতে হিডেন থাকবে)
+    # ইমেজ ব্লক জেনারেটর (১ম ইমেজ পোর্ট্রেট পোস্টার, ২য় ইমেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে)
     html_code = f"""<!-- MOVIE POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
     <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
@@ -430,7 +434,7 @@ def generate_movie_html_output(chat_id):
     bot.send_message(chat_id, f"`{html_code}`", parse_mode="Markdown")
     user_states[chat_id] = {} 
 
-# ওয়েব সিরিজ কোড জেনারেটর
+# ওয়েব সিরিজ কোড জেনারেটর (কালারফুল গ্রেডিয়েন্ট এবং নিওন গ্লোয়িং গ্রিড বাটন স্টাইল)
 def generate_series_html_output(chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -439,7 +443,11 @@ def generate_series_html_output(chat_id):
     episode_buttons_html = ""
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
-        episode_buttons_html += f'        <a href="{link}" target="_blank" style="background: #1a1b22; color: #fff; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #333; text-align: center; transition: 0.3s; font-size:13px; display: inline-block;">Episode {ep["num"]}</a>\n'
+        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড
+        episode_buttons_html += f"""        <a href="{link}" target="_blank" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
+            <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Download Link</span>
+            <span style="font-size: 13px; color: #fff;">{ep['name']}</span>
+        </a>\n"""
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
@@ -468,9 +476,10 @@ def generate_series_html_output(chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 30px 0;">
-    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center;">Season {season} Download Links:</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-top: 15px;">
+<!-- আধুনিক এবং কালারফুল নিওন গ্রিড ডাউনলোড এরিয়া -->
+<div style="background: #0d0e12; padding: 25px; border-radius: 12px; border: 1.5px solid #222; margin: 30px 0;">
+    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center; font-size: 16px; letter-spacing: 0.5px; border-bottom: 2px solid #cc0000; display: inline-block; padding-bottom: 5px;">📥 Download Episodes (Season {season}):</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
 {episode_buttons_html}    </div>
 </div>
 <!-- TV SHOW POST END -->"""
