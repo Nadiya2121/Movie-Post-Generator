@@ -13,8 +13,8 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
 
 # --- কনফিগারেশন এরিয়া ---
-API_ID = int(os.environ.get('API_ID', 29462738)) 
-API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') 
+API_ID = int(os.environ.get('API_ID', 29462738)) # আপনার টেলিগ্রাম এপিআই আইডি (my.telegram.org থেকে সংগৃহীত)
+API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') # আপনার টেলিগ্রাম এপিআই হ্যাশ
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
@@ -166,7 +166,7 @@ async def upload_image_to_cloud(file_id):
             except Exception as e:
                 print(f"ImgBB failed: {e}")
 
-        # পদ্ধতি ২: Catbox.moe (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
+        # পদ্ধতি ২: Catbox.moe
         try:
             url = "https://catbox.moe/user/api.php"
             form_data = aiohttp.FormData()
@@ -180,7 +180,7 @@ async def upload_image_to_cloud(file_id):
         except Exception as e:
             print(f"Catbox failed: {e}")
 
-        # পদ্ধতি ৩: Pixhost.to (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
+        # পদ্ধতি ৩: Pixhost.to
         try:
             url = "https://pixhost.to/api/upload"
             form_data = aiohttp.FormData()
@@ -681,7 +681,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 
             await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
-            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
+            await client.send_message(chat_id, "❌ কোনো মুভি বা serie পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception as e:
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
@@ -787,6 +787,7 @@ async def generate_movie_html_output(client, chat_id):
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
+    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {} 
 
@@ -809,7 +810,7 @@ async def generate_series_html_output(client, chat_id):
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
+    <!-- ১ম扪 इमेज (গ্রিড কার্ড পোস্টার) -->
     <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
     <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
     <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
@@ -834,9 +835,9 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- دانلود করার নিয়ম নির্দেশিকা বক্স (উর্দু সম্পূর্ণ ডিলেট করে বাংলা যোগ করা হয়েছে) -->
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
@@ -850,6 +851,7 @@ async def generate_series_html_output(client, chat_id):
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
+    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {}
 
