@@ -12,7 +12,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0Yu
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
 
-# আপনার পার্সোনাল টেলিগ্রাম অ্যাকাউন্ট আইডি
+# আপনার পার্সোনাল টেলিগ্রাম অ্যাকাউন্ট আইডি (কমান্ড কন্ট্রোল করার জন্য)
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 
 # আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
@@ -22,7 +22,7 @@ DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023))
 OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://www.highrateprofit.com/your-secret-key-here') 
 REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
+# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট = ৩০০ সেকেন্ড)
 AUTO_DELETE_DELAY = 300 
 
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
@@ -116,7 +116,7 @@ def upload_image_to_cloud(file_id):
         file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # পদ্ধতি ১: Catbox.moe (কখনো কোয়েব/রেন্ডার আইপি ব্লক করে না এবং সুপার ফাস্ট)
+        # পদ্ধতি ১: Catbox.moe
         try:
             files = {'fileToUpload': ('photo.jpg', downloaded_file, 'image/jpeg')}
             data = {'reqtype': 'fileupload'}
@@ -126,7 +126,7 @@ def upload_image_to_cloud(file_id):
         except Exception as e:
             print(f"Catbox upload failed, trying backup: {e}")
 
-        # পদ্ধতি ২: Telegraph (ব্যাকআপ হিসেবে ফায়ারওয়াল বাইপাস ট্রাই)
+        # পদ্ধতি ২: Telegraph (ব্যাকআপ)
         files = {'file': ('photo.jpg', downloaded_file, 'image/jpeg')}
         response = requests.post('https://telegra.ph/upload', files=files, timeout=15).json()
         if isinstance(response, list) and len(response) > 0:
@@ -172,9 +172,67 @@ def send_language_picker(chat_id, text="🗣 অনুগ্রহ করে ম
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
     bot.send_message(chat_id, text, reply_markup=markup)
 
+# ভাষা সেভ করে পরবর্তী ধাপে যাওয়ার ফাংশন
+def save_lang_and_proceed(chat_id, language):
+    user_states[chat_id]['movie_data']['lang'] = language
+    is_manual = 'is_manual' in user_states[chat_id]
+
+    if is_manual:
+        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
+        bot.send_message(chat_id, "🎭 মুভির জনরা/ক্যাটাগরি পাঠান (উদা: Action, Comedy, Sci-Fi):")
+    else:
+        post_type = user_states[chat_id].get('type')
+        if post_type == 'movie':
+            user_states[chat_id]['step'] = 'waiting_for_480p'
+            bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        else:
+            user_states[chat_id]['step'] = 'waiting_for_season'
+            bot.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+
 
 # ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
 
+# স্টার্ট কমান্ড হ্যান্ডলার (ইউনিক এবং গ্লোবাল)
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    
+    # ইউজার লিঙ্কে ক্লিক করে আসলে
+    if len(text.split()) > 1:
+        param = text.split()[1]
+        if param.startswith("msg_"):
+            try:
+                msg_id = int(param.split("_")[1])
+                sent_file = bot.copy_message(chat_id=chat_id, from_chat_id=DATABASE_CHANNEL_ID, message_id=msg_id)
+                
+                warning_text = (
+                    "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
+                    f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
+                    "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
+                )
+                sent_warning = bot.send_message(chat_id, warning_text, parse_mode="Markdown")
+                
+                if sent_file and sent_warning:
+                    delete_messages_after_delay(chat_id, [sent_file.message_id, sent_warning.message_id], AUTO_DELETE_DELAY)
+                    
+            except Exception:
+                bot.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
+        return
+
+    # এডমিন বা ইউজার প্যানেল স্টার্ট
+    user_states[chat_id] = {}
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn_movie = types.InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie")
+    btn_series = types.InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")
+    markup.add(btn_movie, btn_series)
+    
+    bot.send_message(chat_id, 
+                     "👋 **BD Movie Zone ফাইল স্টোর ও ব্লগার পোস্ট জেনারেটর প্যানেল!**\n\n"
+                     "কোনো লিঙ্ক ছাড়া সরাসরি ফাইল ফরোয়ার্ড করে পোস্ট তৈরি করতে ক্যাটাগরি সিলেক্ট করুন:", 
+                     parse_mode="Markdown", reply_markup=markup)
+
+# সাধারণ ইউজার: তাদের নিজেদের র্যান্ডম ডাইরেক্ট লিঙ্ক সেট করার কমান্ড
 @bot.message_handler(commands=['set_ad'])
 def set_user_ad(message):
     chat_id = message.chat.id
@@ -194,6 +252,7 @@ def set_user_ad(message):
     save_system_db()
     bot.send_message(chat_id, f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে।")
 
+# সাধারণ ইউজার: তাদের বর্তমান লিঙ্কের স্ট্যাটাস দেখা
 @bot.message_handler(commands=['my_ad'])
 def my_ad_stats(message):
     chat_id = message.chat.id
@@ -206,6 +265,7 @@ def my_ad_stats(message):
         links_text = "\n".join([f"{i+1}. {link}" for i, link in enumerate(user_ads)])
         bot.send_message(chat_id, f"📋 **আপনার একটিভ ডাইরেক্ট লিঙ্কসমূহ (রোটেশন লিস্ট):**\n\n{links_text}")
 
+# ওনার কমান্ড: ওনারের সিক্রেট রেভিনিউ শেয়ার পার্সেন্ট সেট করা
 @bot.message_handler(commands=['set_share'])
 def set_owner_share(message):
     chat_id = message.chat.id
@@ -224,6 +284,7 @@ def set_owner_share(message):
     except ValueError:
         bot.send_message(chat_id, "⚠️ ভুল ফরম্যাট! সঠিক ফরম্যাট: `/set_share 20`")
 
+# ওনার কমান্ড: ওনারের রোটেশন লিস্টে নতুন ডাইরেক্ট লিঙ্ক যুক্ত করা
 @bot.message_handler(commands=['add_owner_ad'])
 def add_owner_ad(message):
     chat_id = message.chat.id
@@ -239,6 +300,7 @@ def add_owner_ad(message):
     save_system_db()
     bot.send_message(chat_id, f"✅ ওনারের রোটেশন ডাটাবেজে নতুন ডাইরেক্ট লিঙ্ক সফলভাবে যুক্ত হয়েছে।")
 
+# ওনার কমান্ড: ওনারের রোটেশন লিস্ট থেকে কোনো লিঙ্ক ডিলিট করা
 @bot.message_handler(commands=['del_owner_ad'])
 def del_owner_ad(message):
     chat_id = message.chat.id
@@ -253,6 +315,7 @@ def del_owner_ad(message):
     else:
         bot.send_message(chat_id, "❌ এই লিঙ্কটি ওনারের ডাটাবেজে পাওয়া যায়নি!")
 
+# ওনার কমান্ড: ওনারের বর্তমান কনফিগারেশন স্ট্যাটাস দেখা
 @bot.message_handler(commands=['owner_stats'])
 def owner_stats(message):
     chat_id = message.chat.id
@@ -268,19 +331,66 @@ def owner_stats(message):
                               f"📋 ওনারের একটিভ লিঙ্কসমূহ:\n{links_text}")
 
 
-# ====================================================================
+# ==================== বাটন ও কুয়েরি হ্যান্ডলারস ====================
 
-# স্টার্ট চ্যাট মেসেজ
-@bot.message_handler(commands=['start'])
-def start_cmd(message):
-    handle_start(message)
-
-# callback query বাটন হ্যান্ডলার
+# callback query বাটন হ্যান্ডলার (ইউনিক এবং গ্লোবাল)
 @bot.callback_query_handler(func=lambda call: True)
-def handle_query_wrapper(call):
-    handle_query(call)
+def handle_query(call):
+    chat_id = call.message.chat.id
+    
+    if call.data == "type_movie":
+        user_states[chat_id] = {'type': 'movie'}
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_auto = types.InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto")
+        btn_manual = types.InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")
+        markup.add(btn_auto, btn_manual)
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="🎬 **মুভি পোস্ট জেনারেশন:**\n\nমুভি ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
+        
+    elif call.data == "type_series":
+        user_states[chat_id] = {'type': 'series'}
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_auto = types.InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto")
+        btn_manual = types.InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")
+        markup.add(btn_auto, btn_manual)
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="📺 **ওয়েব সিরিজ পোস্ট জেনারেশন:**\n\nসিরিজ ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
 
-# টেক্সট, ফটো, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার
+    elif call.data == "mode_auto":
+        user_states[chat_id]['step'] = 'waiting_for_search'
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="🔍 অনুগ্রহ করে নামটি ইংরেজিতে টাইপ করে পাঠান:")
+        
+    elif call.data == "mode_manual":
+        user_states[chat_id]['step'] = 'waiting_for_manual_title'
+        user_states[chat_id]['movie_data'] = {}
+        bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, 
+                              text="✏️ **ম্যানুয়াল পোস্ট শুরু হচ্ছে...**\n\nপ্রথমে পোস্টের মূল টাইটেল/নাম লিখে পাঠান:")
+
+    elif call.data.startswith("select_"):
+        parts = call.data.split("_")
+        movie_id = parts[1]
+        is_tv = parts[2] == "tv"
+        fetch_tmdb_details(chat_id, movie_id, is_tv, call.message.message_id)
+
+    elif call.data.startswith("lang_"):
+        selected_lang = call.data.split("_")[1]
+        if selected_lang == "custom":
+            user_states[chat_id]['step'] = 'waiting_for_custom_lang'
+            bot.send_message(chat_id, "✏️ আপনার কাস্টম ল্যাঙ্গুয়েজটি টাইপ করে পাঠান (উদা: Tamil [Hindi]):")
+        else:
+            save_lang_and_proceed(chat_id, selected_lang)
+        
+    elif call.data == "generate_series_code":
+        if chat_id in user_states and 'episodes' in user_states[chat_id] and len(user_states[chat_id]['episodes']) > 0:
+            generate_series_html_output(chat_id)
+        else:
+            bot.answer_callback_query(call.id, "কোনো ফাইল ফরোয়ার্ড করা হয়নি!", show_alert=True)
+
+
+# ==================== মেসেজ প্রসেসিং এরিয়া ====================
+
+# টেক্সট, ফটো, ডকুমেন্ট ও ভিডিও মেসেজ হ্যান্ডলার (ইউনিক এবং গ্লোবাল)
 @bot.message_handler(content_types=['text', 'document', 'video', 'photo'])
 def handle_all_messages(message):
     chat_id = message.chat.id
@@ -400,6 +510,7 @@ def handle_all_messages(message):
             
         elif state == 'waiting_for_episodes':
             if message.content_type in ['document', 'video']:
+                # চ্যানেলে ফরোয়ার্ড করে পার্মানেন্টলি সেভ করা
                 forwarded_msg = bot.forward_message(chat_id=DATABASE_CHANNEL_ID, from_chat_id=chat_id, message_id=message.message_id)
                 file_msg_id = f"msg_{forwarded_msg.message_id}"
                 
