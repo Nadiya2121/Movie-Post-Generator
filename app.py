@@ -57,34 +57,45 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- সুরক্ষিত কোড সেন্ডার হেল্পার ---
+# --- স্মার্ট কোড সেন্ডার এবং অটো-স্প্লিটার মেকানিজম ---
 async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
-    # সরাসরি এক ক্লিকে কপি করার জন্য Markdown ব্যবহার করা হয়েছে যাতে HTML ট্যাগ নষ্ট না হয়
+    # Raw HTML কোডকে সরাসরি Markdown কোড ব্লকে নেওয়া হলো (যাতে এস্কেপ করার ফলে সাইজ বৃদ্ধি না পায়)
     markdown_code_block = f"```html\n{html_code}\n```"
     
-    # কোডের সাইজ টেলিগ্রামের লিমিটের ভেতরে থাকলে সরাসরি কোড ব্লক পাঠাবে
+    # কোড লিমিটের ভেতরে থাকলে এক মেসেজে কোড ব্লক আকারে পাঠাবে
     if len(markdown_code_block) <= 4096:
         try:
             await client.send_message(chat_id, markdown_code_block, parse_mode=ParseMode.MARKDOWN)
+            return
         except Exception as e:
-            # ব্যাকআপ হিসেবে এস্কেপড HTML সেন্ডার
+            print(f"Direct markdown block failed: {e}. Trying HTML escape backup...")
             try:
                 escaped_code = html.escape(html_code)
                 await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+                return
             except Exception:
                 pass
-    else:
-        # কোড অনেক বড় হয়ে গেলে টেলিগ্রাম মেসেজ ব্লক করে দেয়, তাই ফাইল হিসেবে ব্যাকআপ পাঠানো হবে
-        try:
-            file_data = io.BytesIO(html_code.encode('utf-8'))
-            file_data.name = filename
-            await client.send_document(
-                chat_id,
-                document=file_data,
-                caption="⚠️ কোডটি অতিরিক্ত বড় (৪০৯৬ অক্ষরের বেশি) হওয়ায় মেসেজে পাঠানো সম্ভব হয়নি, তাই সরাসরি ফাইল আকারে দেওয়া হলো।"
-            )
-        except Exception:
-            await client.send_message(chat_id, "❌ কোডটি পাঠানো সম্ভব হচ্ছে না।")
+
+    # কোডটি ৪০০০ অক্ষরের বেশি হলে টেলিগ্রাম মেসেজ রিজেক্ট করে, তাই এটি নিরাপদ পার্টে ভাগ করে মেসেজেই পাঠানো হবে
+    print("HTML code length exceeds limit. Splitting into multiple messages...")
+    parts = []
+    current_part = ""
+    for line in html_code.split("\n"):
+        if len(current_part) + len(line) + 20 > 3800:
+            parts.append(current_part)
+            current_part = line + "\n"
+        else:
+            current_part += line + "\n"
+    if current_part:
+        parts.append(current_part)
+        
+    for i, part in enumerate(parts):
+        part_block = f"```html\n{part}\n```"
+        await client.send_message(
+            chat_id, 
+            f"📋 **কোড পার্ট {i+1} (কপি করে পর পর ব্লগারে বসিয়ে দিন):**\n{part_block}", 
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
@@ -451,7 +462,7 @@ async def handle_start(client, message):
     ])
     
     await client.send_message(chat_id, 
-                     "👋 **BD Movie Zone আল্ট্রা-ফাস্ট ফাইল স্টোর ও ব্লগার পোস্ট জেনারেটর প্যানেল!**\n\n"
+                     "👋 **BD Movie Zone আল্ট্রা-ফাস্ট ফাইল স্টোর ও blogger পোস্ট জেনারেটর প্যানেল!**\n\n"
                      "সরাসরি ফাইল ফরোয়ার্ড করে পোস্ট তৈরি করতে ক্যাটাগরি সিলেক্ট করুন:", 
                      reply_markup=markup)
 
@@ -561,6 +572,7 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_genres' and message.text:
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
