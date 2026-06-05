@@ -1,5 +1,6 @@
 import os
 import threading
+import requests
 import random
 import json
 import io
@@ -128,7 +129,7 @@ def save_system_db():
     except Exception:
         pass
 
-# ১০০% এসিঙ্ক্রোনাস ও আল্ট্রা-ফাস্ট ডাবল-লেয়ার ইমেজ আপলোডার (aiohttp ভিত্তিক)
+# ১০০% এসিঙ্ক্রোনাস ও আল্ট্রা-ফাস্ট ডাবল-লেয়ার ইমেজ আপলোডার ফাংশน
 async def upload_image_to_cloud(file_id):
     global http_session
     if not http_session:
@@ -143,14 +144,14 @@ async def upload_image_to_cloud(file_id):
             return None
         file_path = res['result']['file_path']
         
-        # ২. এসিঙ্ক্রোনাস উপায়ে ইমেজ বাইটস মেমোরিতে ডাউনলোড করা হচ্ছে (১০০% নন-ব্লকিং)
+        # ২. এসিঙ্ক্রোনাস উপায়ে ইমেজ বাইটস মেমোরিতে ডাউনলোড করা হচ্ছে
         download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         async with http_session.get(download_url, timeout=12) as resp:
             img_data = await resp.read()
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
+        # পদ্ধতি ১: ImgBB (আইজিজিবি)
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
                 url = "https://api.imgbb.com/1/upload"
@@ -199,7 +200,7 @@ async def upload_image_to_cloud(file_id):
         print(f"All image upload services failed: {e}")
     return None
 
-# সম্পূর্ণ এসিঙ্ক্রোনাস ও নন-ব্লকিং ফাইল ফরোয়ার্ডার (HTTP API + aiohttp)
+# সম্পূর্ণ এসিঙ্ক্রোনাস ও নন-ব্লকিং ফাইল ফরোয়ার্ডার
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session:
@@ -239,7 +240,7 @@ async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, 
         print(f"Async HTTP Forward Failed: {e}")
     return None
 
-# সম্পূর্ণ এসিঙ্ক্রোনাস কপি মেসেজ ডেলিভারি (aiohttp)
+# সম্পূর্ণ এসিঙ্ক্রোনাস কপি মেসেজ ডেলিভারি
 async def send_file_to_user(to_chat_id, msg_id):
     global http_session
     if not http_session:
@@ -269,7 +270,7 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception:
             pass
 
-# ডাইনামিক রেভিনিউ শেয়ারিং এবং র্যান্ডম লিঙ্ক রোটেশন মেকানিজম
+# ডাইনামিক রেভিনিউ শেয়ারিং এবং র্যান্ডম লিঙ্ক রোটেশন মেকানিজম (100% সেফটি নেট সহ)
 def get_button_ad_link(chat_id):
     owner_share = system_db.get('owner_share', 20)
     owner_ads = system_db.get('owner_ads', [])
@@ -281,7 +282,9 @@ def get_button_ad_link(chat_id):
         return random.choice(user_ads)
     if owner_ads:
         return random.choice(owner_ads)
-    return ""
+    
+    # ব্যাকআপ নিরাপত্তা: ডাটাবেজ খালি থাকলে ওনারের ডিফল্ট লিঙ্ক ব্যবহার করা হবে (যাতে বিজ্ঞাপন কখনো মিস না হয়)
+    return OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else ""
 
 # ভাষা সিলেকশন মেনু
 async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
@@ -398,7 +401,7 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            # এসিঙ্ক্রোনাস কপি মেথড কল (সম্পূর্ণ থ্রেড লক মুক্ত)
+            # এসিঙ্ক্রোনাস কপি মেথড কল
             user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
             
             if user_msg_id:
@@ -681,7 +684,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 
             await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
-            await client.send_message(chat_id, "❌ কোনো মুভি বা serie পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
+            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception as e:
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
@@ -724,7 +727,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         print(f"Async TMDB Details Error: {e}")
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর (পার্সিং এরর ফিক্স)
+# মুভি কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -738,10 +741,6 @@ async def generate_movie_html_output(client, chat_id):
     ad_480 = get_button_ad_link(chat_id)
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
-
-    onclick_480 = f"onclick=\"window.open('{ad_480}', '_blank');\"" if ad_480 else ""
-    onclick_720 = f"onclick=\"window.open('{ad_720}', '_blank');\"" if ad_720 else ""
-    onclick_1080 = f"onclick=\"window.open('{ad_1080}', '_blank');\"" if ad_1080 else ""
 
     html_code = f"""<!-- MOVIE POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
@@ -769,29 +768,62 @@ async def generate_movie_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- دانلود করার নিয়ম নির্দেশিকা বক্স -->
-<div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
-    ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
+<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
+    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
+            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+        </svg>
+        ডাউনলোড করার সঠিক নিয়ম:
+    </strong>
+    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
+        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
+        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
+        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+    </p>
 </div>
 
+<!-- ডাউনলোড বাটন এরিয়া -->
 <div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; text-align: center; margin: 20px 0;">
     <h3 style="color: #fff; text-transform: uppercase; margin-top: 0;">Download Links:</h3>
     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;">
-        {"<a href='" + link_480 + "' " + onclick_480 + " target='_blank' style='background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px;'>📥 Download 480p (SD)</a>" if link_480 else ""}
-        {"<a href='" + link_720 + "' " + onclick_720 + " target='_blank' style='background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px;'>📥 Download 720p (HD)</a>" if link_720 else ""}
-        {"<a href='" + link_1080 + "' " + onclick_1080 + " target='_blank' style='background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px;'>📥 Download 1080p (FullHD)</a>" if link_1080 else ""}
+        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_480 + "', '" + link_480 + "')\\" target='_self' style='background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 480p (SD)</span></a>" if link_480 else ""}
+        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_720 + "', '" + link_720 + "')\\" target='_self' style='background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 720p (HD)</span></a>" if link_720 else ""}
+        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_1080 + "', '" + link_1080 + "')\\" target='_self' style='background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 1080p (FullHD)</span></a>" if link_1080 else ""}
     </div>
 </div>
+
+<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
+<script>
+function handleDownloadClick(element, adLink, fileLink) {{
+    if (!adLink || adLink === 'None' || adLink === '') {{
+        window.location.href = fileLink;
+        return;
+    }}
+    if (element.getAttribute('data-clicked') === 'true') {{
+        window.location.href = fileLink;
+    }} else {{
+        window.open(adLink, '_blank');
+        element.setAttribute('data-clicked', 'true');
+        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+        element.style.borderColor = '#10b981';
+        element.style.color = '#fff';
+        
+        var mainText = element.querySelector('.btn-label-text');
+        if (mainText) {{
+            mainText.innerHTML = '📥 Click Again to Download';
+        }}
+    }}
+}}
+</script>
 <!-- MOVIE POST END -->"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {} 
 
-# ওয়েব সিরিজ কোড জেনারেটর
+# ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -801,16 +833,16 @@ async def generate_series_html_output(client, chat_id):
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
         ad_link = get_button_ad_link(chat_id)
-        onclick_attr = f"onclick=\"window.open('{ad_link}', '_blank');\"" if ad_link else ""
         
-        episode_buttons_html += f"""        <a href="{link}" {onclick_attr} target="_blank" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
-            <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Download Link</span>
-            <span style="font-size: 13px; color: #fff;">{ep['name']}</span>
+        # ডাবল-ক্লিক জাভাস্ক্রিপ্ট ট্রিগার বাটন স্ট্রাকচার
+        episode_buttons_html += f"""        <a href="javascript:void(0);" onclick="handleDownloadClick(this, '{ad_link}', '{link}')" target="_self" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
+            <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;" class="btn-sub-text">Download Link</span>
+            <span style="font-size: 13px; color: #fff;" class="btn-label-text">{ep['name']}</span>
         </a>\n"""
 
     html_code = f"""<!-- TV SHOW POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম扪 इमेज (গ্রিড কার্ড পোস্টার) -->
+    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
     <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
     <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
     <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
@@ -835,10 +867,19 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
-<div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
-    ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
+<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
+    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
+            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
+        </svg>
+        ডাউনলোড করার সঠিক নিয়ম:
+    </strong>
+    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
+        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
+        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
+        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+    </p>
 </div>
 
 <!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
@@ -847,6 +888,30 @@ async def generate_series_html_output(client, chat_id):
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
 {episode_buttons_html}    </div>
 </div>
+
+<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
+<script>
+function handleDownloadClick(element, adLink, fileLink) {{
+    if (!adLink || adLink === 'None' || adLink === '') {{
+        window.location.href = fileLink;
+        return;
+    }}
+    if (element.getAttribute('data-clicked') === 'true') {{
+        window.location.href = fileLink;
+    }} else {{
+        window.open(adLink, '_blank');
+        element.setAttribute('data-clicked', 'true');
+        element.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+        element.style.borderColor = '#10b981';
+        element.style.color = '#fff';
+        
+        var subText = element.querySelector('.btn-sub-text');
+        var mainText = element.querySelector('.btn-label-text');
+        if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
+        if (mainText) mainText.innerHTML = 'Click Again';
+    }}
+}}
+</script>
 <!-- TV SHOW POST END -->"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
