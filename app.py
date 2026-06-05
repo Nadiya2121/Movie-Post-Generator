@@ -57,6 +57,35 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+# --- সুরক্ষিত কোড সেন্ডার হেল্পার ---
+async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
+    # সরাসরি এক ক্লিকে কপি করার জন্য Markdown ব্যবহার করা হয়েছে যাতে HTML ট্যাগ নষ্ট না হয়
+    markdown_code_block = f"```html\n{html_code}\n```"
+    
+    # কোডের সাইজ টেলিগ্রামের লিমিটের ভেতরে থাকলে সরাসরি কোড ব্লক পাঠাবে
+    if len(markdown_code_block) <= 4096:
+        try:
+            await client.send_message(chat_id, markdown_code_block, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            # ব্যাকআপ হিসেবে এস্কেপড HTML সেন্ডার
+            try:
+                escaped_code = html.escape(html_code)
+                await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+    else:
+        # কোড অনেক বড় হয়ে গেলে টেলিগ্রাম মেসেজ ব্লক করে দেয়, তাই ফাইল হিসেবে ব্যাকআপ পাঠানো হবে
+        try:
+            file_data = io.BytesIO(html_code.encode('utf-8'))
+            file_data.name = filename
+            await client.send_document(
+                chat_id,
+                document=file_data,
+                caption="⚠️ কোডটি অতিরিক্ত বড় (৪০৯৬ অক্ষরের বেশি) হওয়ায় মেসেজে পাঠানো সম্ভব হয়নি, তাই সরাসরি ফাইল আকারে দেওয়া হলো।"
+            )
+        except Exception:
+            await client.send_message(chat_id, "❌ কোডটি পাঠানো সম্ভব হচ্ছে না।")
+
 # মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
 
@@ -291,26 +320,6 @@ async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ
         [InlineKeyboardButton("🎙 Multi Audio", callback_data="lang_Multi Audio"), InlineKeyboardButton("✏️ কাস্টম টাইপ করুন", callback_data="lang_custom")]
     ])
     await client.send_message(chat_id, text, reply_markup=markup)
-
-
-# ডাবল-সেফটি কোড সেন্ডার মেকানিজম (টেক্সট ফেইল হলে স্বয়ংক্রিয়ভাবে মেমোরি ফাইল ডেলিভারি)
-async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
-    try:
-        escaped_code = html.escape(html_code)
-        await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
-    except Exception as e:
-        print(f"Text code dispatch failed: {e}. Falling back to dynamic file attachment generator...")
-        try:
-            file_data = io.BytesIO(html_code.encode('utf-8'))
-            file_data.name = filename
-            await client.send_document(
-                chat_id,
-                document=file_data,
-                caption="⚠️ কোডের সাইজ বড় অথবা টেলিগ্রাম রেন্ডারিং লিমিটের কারণে এটি সরাসরি ফাইল হিসেবে পাঠানো হলো। ফাইলটি ডাউনলোড করে ওপেন করলেই সম্পূর্ণ কোডটি পেয়ে যাবেন।"
-            )
-        except Exception as file_err:
-            print(f"File attachment dispatch failed: {file_err}")
-            await client.send_message(chat_id, "❌ কোডটি কোনো উপায়ে পাঠানো সম্ভব হচ্ছে না।")
 
 
 # ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
@@ -699,7 +708,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফেলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception as e:
@@ -850,7 +859,7 @@ function handleDownloadClick(element, adLink, fileLink) {{
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     
-    # সুরক্ষিত কোড ডিসপ্যাচ
+    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
     
@@ -951,7 +960,7 @@ function handleDownloadClick(element, adLink, fileLink) {{
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     
-    # সুরক্ষিত কোড ডিসপ্যাচ
+    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
     
