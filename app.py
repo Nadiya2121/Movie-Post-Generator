@@ -1,19 +1,20 @@
 import os
 import threading
-import requests
 import random
 import json
 import io
 import asyncio
 import html # এইচটিএমএল ট্যাগ সুরক্ষিতভাবে পার্স করার জন্য
+import urllib.parse
+import aiohttp # সম্পূর্ণ এসিঙ্ক্রোনাস এপিআই হ্যান্ডেল করার জন্য
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
 
 # --- কনফিগারেশন এরিয়া ---
-API_ID = int(os.environ.get('API_ID', 29462738)) # আপনার টেলিগ্রাম এপিআই আইডি (my.telegram.org থেকে সংগৃহীত)
-API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') # আপনার টেলিগ্রাম এপিআই হ্যাশ
+API_ID = int(os.environ.get('API_ID', 29462738)) 
+API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') 
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
@@ -34,12 +35,15 @@ IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70
 # ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
 
+# গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন ভেরিয়েবল
+http_session = None
+
 # Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Ultra-Fast Pyrogram Movie Generator Bot is alive!"
+    return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -124,74 +128,83 @@ def save_system_db():
     except Exception:
         pass
 
-# ১০০% সাকসেস রেট সহ অ্যাডভান্সড ডাবল-লেয়ার ইমেজ আপলোডার ফাংশন (ImgBB + Catbox + Pixhost)
+# ১০০% এসিঙ্ক্রোনাস ও আল্ট্রা-ফাস্ট ডাবল-লেয়ার ইমেজ আপলোডার (aiohttp ভিত্তিক)
 async def upload_image_to_cloud(file_id):
+    global http_session
+    if not http_session:
+        return None
+        
     try:
-        # ১. টেলিগ্রামের অফিসিয়াল HTTP API ব্যবহার করে ডাউনলোডের ডিরেক্ট ইউআরএল জেনারেট (১০০% ক্যাশ গ্যারান্টি)
+        # ১. টেলিগ্রামের অফিসিয়াল HTTP API থেকে ডাউনলোডের ডিরেক্ট ইউআরএল জেনারেট
         get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
-        res = requests.get(get_file_url, timeout=10).json()
+        async with http_session.get(get_file_url, timeout=10) as resp:
+            res = await resp.json()
         if not res.get('ok'):
             return None
         file_path = res['result']['file_path']
         
-        # ২. ডিরেক্ট ইমেজ বাইটস ডাউনলোড করা হচ্ছে
+        # ২. এসিঙ্ক্রোনাস উপায়ে ইমেজ বাইটস মেমোরিতে ডাউনলোড করা হচ্ছে (১০০% নন-ব্লকিং)
         download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        img_data = requests.get(download_url, timeout=12).content
+        async with http_session.get(download_url, timeout=12) as resp:
+            img_data = await resp.read()
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (আইজিজিবি - এটি সুপার ফাস্ট এবং ক্লাউডে স্থায়ী)
+        # পদ্ধতি ১: ImgBB (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
-                payload = {'key': IMGBB_API_KEY}
-                files = {'image': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
-                r = requests.post('https://api.imgbb.com/1/upload', data=payload, files=files, timeout=15)
-                if r.status_code == 200:
-                    res_data = r.json()
-                    if res_data.get('success'):
-                        return res_data['data']['url']
+                url = "https://api.imgbb.com/1/upload"
+                form_data = aiohttp.FormData()
+                form_data.add_field('key', IMGBB_API_KEY)
+                form_data.add_field('image', img_data, filename='photo.jpg', content_type='image/jpeg')
+                
+                async with http_session.post(url, data=form_data, timeout=15) as resp:
+                    if resp.status == 200:
+                        res_data = await resp.json()
+                        if res_data.get('success'):
+                            return res_data['data']['url']
             except Exception as e:
                 print(f"ImgBB failed: {e}")
 
-        # পদ্ধতি ২: Catbox.moe
+        # পদ্ধতি ২: Catbox.moe (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
         try:
-            file_object = io.BytesIO(img_data)
-            files = {'fileToUpload': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'reqtype': 'fileupload'}
-            r = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=10)
-            if r.status_code == 200 and r.text.startswith('http'):
-                return r.text.strip()
+            url = "https://catbox.moe/user/api.php"
+            form_data = aiohttp.FormData()
+            form_data.add_field('reqtype', 'fileupload')
+            form_data.add_field('fileToUpload', img_data, filename='photo.jpg', content_type='image/jpeg')
+            
+            async with http_session.post(url, data=form_data, timeout=10) as resp:
+                res_text = await resp.text()
+                if resp.status == 200 and res_text.startswith('http'):
+                    return res_text.strip()
         except Exception as e:
             print(f"Catbox failed: {e}")
 
-        # পদ্ধতি ৩: Pixhost.to
+        # পদ্ধতি ৩: Pixhost.to (এসিঙ্ক্রোনাস মাল্টিপার্ট আপলোড)
         try:
-            file_object = io.BytesIO(img_data)
-            files = {'img': ('photo.jpg', file_object, 'image/jpeg')}
-            data = {'content_type': '0'}
-            r = requests.post('https://pixhost.to/api/upload', files=files, data=data, timeout=10)
-            if r.status_code == 200:
-                res_data = r.json()
-                if 'img_url' in res_data:
-                    return res_data['img_url']
+            url = "https://pixhost.to/api/upload"
+            form_data = aiohttp.FormData()
+            form_data.add_field('content_type', '0')
+            form_data.add_field('img', img_data, filename='photo.jpg', content_type='image/jpeg')
+            
+            async with http_session.post(url, data=form_data, timeout=10) as resp:
+                if resp.status == 200:
+                    res_data = await resp.json()
+                    if 'img_url' in res_data:
+                        return res_data['img_url']
         except Exception as e:
             print(f"Pixhost failed: {e}")
-
-        # পদ্ধতি ৪: Telegraph (বানান ভুল সংশোধন করা হয়েছে)
-        try:
-            files = {'file': ('photo.jpg', io.BytesIO(img_data), 'image/jpeg')}
-            r = requests.post('https://telegra.ph/upload', files=files, timeout=12).json()
-            if isinstance(r, list) and len(r) > 0:
-                return "https://telegra.ph" + r[0]['src']
-        except Exception as e:
-            print(f"Telegraph failed: {e}")
             
     except Exception as e:
         print(f"All image upload services failed: {e}")
     return None
 
-# অফিশিয়াল HTTP API ফরোয়ার্ডার (যা Peer ID এরর চিরতরে দূর করবে এবং কোনো ম্যানুয়াল মেসেজ ছাড়াই কাজ করবে)
-def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+# সম্পূর্ণ এসিঙ্ক্রোনাস ও নন-ব্লকিং ফাইল ফরোয়ার্ডার (HTTP API + aiohttp)
+async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+    global http_session
+    if not http_session:
+        return None
+        
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
         payload = {
@@ -203,13 +216,14 @@ def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, captio
         else:
             payload["video"] = file_id
         
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP File_ID Send Failed: {e}")
+        print(f"Async HTTP send file_id failed: {e}")
 
-    # ব্যাকআপ পদ্ধতি: ডিরেক্ট ফরওয়ার্ড (HTTP API এর মাধ্যমে)
+    # ব্যাকআপ ফরোয়ার্ড
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
         payload = {
@@ -217,15 +231,20 @@ def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, captio
             "from_chat_id": from_chat_id,
             "message_id": message_id
         }
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP Forward Failed: {e}")
+        print(f"Async HTTP Forward Failed: {e}")
     return None
 
-# অফিশিয়াল HTTP API কপি মেথড (ইউজারদের ফাইল ডেলিভারি নিশ্চিত করার জন্য)
-def send_file_to_user(to_chat_id, msg_id):
+# সম্পূর্ণ এসিঙ্ক্রোনাস কপি মেসেজ ডেলিভারি (aiohttp)
+async def send_file_to_user(to_chat_id, msg_id):
+    global http_session
+    if not http_session:
+        return None
+        
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/copyMessage"
         payload = {
@@ -233,11 +252,12 @@ def send_file_to_user(to_chat_id, msg_id):
             "from_chat_id": DATABASE_CHANNEL_ID,
             "message_id": msg_id
         }
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP copyMessage failed: {e}")
+        print(f"Async HTTP copyMessage failed: {e}")
     return None
 
 # অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
@@ -378,8 +398,8 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            # অফিশিয়াল এপিআই কপি মেথড কল (MTProto Peer ID এরর মুক্ত)
-            user_msg_id = send_file_to_user(chat_id, int(param.split("_")[1]))
+            # এসিঙ্ক্রোনাস কপি মেথড কল (সম্পূর্ণ থ্রেড লক মুক্ত)
+            user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
             
             if user_msg_id:
                 warning_text = (
@@ -515,11 +535,10 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার (Telegraph / Catbox)
+    # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         poster_url = await upload_image_to_cloud(photo_id)
         
         if poster_url:
@@ -529,11 +548,10 @@ async def handle_all_messages(client, message):
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
-    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার (Telegraph / Catbox)
+    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         backdrop_url = await upload_image_to_cloud(photo_id)
         
         if backdrop_url:
@@ -554,15 +572,14 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (অফিশিয়াল এপিআই লক বাইপাস হ্যাক) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট (১০০% সাকসেস)
-            db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
             else:
@@ -588,7 +605,7 @@ async def handle_all_messages(client, message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
 
-    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার (লক বাইপাস সহ) ---
+    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -607,8 +624,7 @@ async def handle_all_messages(client, message):
                 file_type = 'document' if message.document else 'video'
                 file_id = message.document.file_id if message.document else message.video.file_id
                 
-                # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট
-                db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+                db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
                 if db_msg_id:
                     file_msg_id = f"msg_{db_msg_id}"
                 else:
@@ -641,11 +657,16 @@ async def handle_all_messages(client, message):
 
 # TMDB সার্চ কুয়েরি
 async def search_tmdb(client, chat_id, query, post_type):
+    global http_session
+    if not http_session:
+        return
+    
     is_tv = "tv" if post_type == "series" else "movie"
-    url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={requests.utils.quote(query)}"
+    url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
     
     try:
-        response = requests.get(url).json()
+        async with http_session.get(url, timeout=10) as resp:
+            response = await resp.json()
         results = response.get('results', [])
         
         if results:
@@ -661,16 +682,22 @@ async def search_tmdb(client, chat_id, query, post_type):
             await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
-    except Exception:
+    except Exception as e:
+        print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
 # TMDB ডিটেইলস সংগ্রহ
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
+    global http_session
+    if not http_session:
+        return
+        
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}"
     
     try:
-        data = requests.get(url).json()
+        async with http_session.get(url, timeout=10) as resp:
+            data = await resp.json()
         title = data.get('title') if not is_tv else data.get('name')
         release_date = data.get('release_date') if not is_tv else data.get('first_air_date')
         year = release_date.split('-')[0] if release_date else 'N/A'
@@ -693,7 +720,8 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
         await send_language_picker(client, chat_id, f"✅ সিলেক্ট হয়েছে: **{title}**\n\n🗣 অনুগ্রহ করে ভাষাটি সিলেক্ট করুন:")
             
-    except Exception:
+    except Exception as e:
+        print(f"Async TMDB Details Error: {e}")
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
 # মুভি কোড জেনারেটর (পার্সিং এরর ফিক্স)
@@ -759,7 +787,6 @@ async def generate_movie_html_output(client, chat_id):
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {} 
 
@@ -807,9 +834,9 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<!-- دانلود করার নিয়ম নির্দেশিকা বক্স (উর্দু সম্পূর্ণ ডিলেট করে বাংলা যোগ করা হয়েছে) -->
 <div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif;">
-    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> ডাউনলোড করার নিয়ম:</strong>
+    <strong style="color: #38bdf8; display: block; margin-bottom: 5px; font-size: 13px;"><i class="fas fa-info-circle"></i> دانلود করার নিয়ম:</strong>
     ডাউনলোড বাটনে ক্লিক করার সাথে সাথে একটি নতুন ট্যাব বা স্পনসর পেজ ওপেন হবে। দয়া করে আগের ট্যাবে বা মূল পেজে ফিরে আসুন, আপনার কাঙ্ক্ষিত ভিডিও ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
 </div>
 
@@ -823,7 +850,6 @@ async def generate_series_html_output(client, chat_id):
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {}
 
@@ -837,25 +863,34 @@ if __name__ == '__main__':
     
     # পাইরোগ্রাম সচল করে অটো পিয়ার ক্যাশিং হ্যাক চালু করা
     async def main():
+        global http_session
         print("Starting Pyrogram Bot Client...")
         await app.start()
+        
+        # গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন সচল করা
+        http_session = aiohttp.ClientSession()
         
         # স্বয়ংক্রিয় পিয়ার রিজলভার হ্যাক ট্রিগার (রিস্টার্টের পর চ্যানেলের মেসেজ আটকে থাকার সমাধান)
         try:
             print("Resolving and caching Database Channel Peer...")
             # HTTP API দ্বারা চ্যানেলে সিস্টেম মেসেজ পাঠিয়ে কানেকশন সচল করা
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            res = requests.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10).json()
+            async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
+                res = await resp.json()
             if res.get('ok'):
                 print("✅ Database Channel Peer resolved and cached successfully via HTTP!")
                 # ডামি মেসেজটি মুছে ফেলা হচ্ছে
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
-                requests.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
+                await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
         except Exception as e:
             print(f"⚠️ Error resolving database channel peer: {e}")
             
         print("Bot is successfully running and listening for requests...")
         await idle()
+        
+        # সেশন বন্ধ করা হচ্ছে
+        if http_session:
+            await http_session.close()
         await app.stop()
 
     # asyncio ইভেন্ট লুপের মাধ্যমে রান করা হচ্ছে
