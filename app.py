@@ -1,6 +1,5 @@
 import os
 import threading
-import requests
 import random
 import json
 import io
@@ -151,7 +150,7 @@ async def upload_image_to_cloud(file_id):
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (আইজিজিবি - এটি সুপার ফাস্ট এবং ক্লাউডে স্থায়ী)
+        # পদ্ধতি ১: ImgBB (আইজিজিবি)
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
                 url = "https://api.imgbb.com/1/upload"
@@ -196,25 +195,16 @@ async def upload_image_to_cloud(file_id):
         except Exception as e:
             print(f"Pixhost failed: {e}")
 
-        # পদ্ধতি ৪: Telegraph (বানান ভুল সংশোধন করা হয়েছে - r ব্যবহার করা হয়েছে)
-        try:
-            url = "https://telegra.ph/upload"
-            form_data = aiohttp.FormData()
-            form_data.add_field('file', img_data, filename='photo.jpg', content_type='image/jpeg')
-            
-            async with http_session.post(url, data=form_data, timeout=12) as resp:
-                r = await resp.json()
-                if isinstance(r, list) and len(r) > 0:
-                    return "https://telegra.ph" + r[0]['src']
-        except Exception as e:
-            print(f"Telegraph failed: {e}")
-            
     except Exception as e:
         print(f"All image upload services failed: {e}")
     return None
 
-# অফিশিয়াল HTTP API ফরোয়ার্ডার (যা Peer ID এরর চিরতরে দূর করবে এবং কোনো ম্যানুয়াল মেসেজ ছাড়াই কাজ করবে)
-def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+# সম্পূর্ণ এসিঙ্ক্রোনাস ও নন-ব্লকিং ফাইল ফরোয়ার্ডার
+async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+    global http_session
+    if not http_session:
+        return None
+        
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
         payload = {
@@ -226,13 +216,14 @@ def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, captio
         else:
             payload["video"] = file_id
         
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP File_ID Send Failed: {e}")
+        print(f"Async HTTP send file_id failed: {e}")
 
-    # ব্যাকআপ পদ্ধতি: ডিরেক্ট ফরওয়ার্ড (HTTP API এর মাধ্যমে)
+    # ব্যাকআপ ফরোয়ার্ড
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
         payload = {
@@ -240,15 +231,20 @@ def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, captio
             "from_chat_id": from_chat_id,
             "message_id": message_id
         }
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP Forward Failed: {e}")
+        print(f"Async HTTP Forward Failed: {e}")
     return None
 
-# অফিশিয়াল HTTP API কপি মেথড (ইউজারদের ফাইল ডেলিভারি নিশ্চিত করার জন্য)
-def send_file_to_user(to_chat_id, msg_id):
+# সম্পূর্ণ এসিঙ্ক্রোনাস কপি মেসেজ ডেলিভারি
+async def send_file_to_user(to_chat_id, msg_id):
+    global http_session
+    if not http_session:
+        return None
+        
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/copyMessage"
         payload = {
@@ -256,11 +252,12 @@ def send_file_to_user(to_chat_id, msg_id):
             "from_chat_id": DATABASE_CHANNEL_ID,
             "message_id": msg_id
         }
-        res = requests.post(url, json=payload, timeout=15).json()
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
         if res.get('ok'):
             return res['result']['message_id']
     except Exception as e:
-        print(f"HTTP copyMessage failed: {e}")
+        print(f"Async HTTP copyMessage failed: {e}")
     return None
 
 # অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
@@ -284,8 +281,6 @@ def get_button_ad_link(chat_id):
         return random.choice(user_ads)
     if owner_ads:
         return random.choice(owner_ads)
-    
-    # ব্যাকআপ নিরাপত্তা: ডাটাবেজ খালি থাকলে ওনারের ডিফল্ট লিঙ্ক ব্যবহার করা হবে (যাতে বিজ্ঞাপন কখনো মিস না হয়)
     return OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else ""
 
 # ভাষা সিলেকশন মেনু
@@ -403,12 +398,12 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            # অফিশিয়াল এপিআই কপি মেথড কল (MTProto Peer ID এরর মুক্ত)
+            # এসিঙ্ক্রোনাস কপি মেথড কল (সম্পূর্ণ থ্রেড লক মুক্ত)
             user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
             
             if user_msg_id:
                 warning_text = (
-                    "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
+                    "⚠️ **গুরুত্বपूर्ण সতর্কবার্তা!**\n\n"
                     f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
                     "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
                 )
@@ -540,11 +535,10 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার
+    # ম্যানুয়াল পোস্টার রিসিভার (বাগ-মুক্ত এপিআই আপলোডার)
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         poster_url = await upload_image_to_cloud(photo_id)
         
         if poster_url:
@@ -558,7 +552,6 @@ async def handle_all_messages(client, message):
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         backdrop_url = await upload_image_to_cloud(photo_id)
         
         if backdrop_url:
@@ -579,15 +572,14 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (অফিশিয়াল এপিআই লক বাইপাস হ্যাক) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (লক বাইপাস সহ) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট (১০০% সাকসেস)
-            db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
             else:
@@ -632,8 +624,7 @@ async def handle_all_messages(client, message):
                 file_type = 'document' if message.document else 'video'
                 file_id = message.document.file_id if message.document else message.video.file_id
                 
-                # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট
-                db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+                db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
                 if db_msg_id:
                     file_msg_id = f"msg_{db_msg_id}"
                 else:
@@ -688,7 +679,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception as e:
@@ -748,6 +739,19 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
+    # ডাইনামিক বাটন জেনারেটর (আলাদা পাইথন ভেরিয়েবলে আগে থেকে তৈরি করা হয়েছে যাতে কোনো সিনট্যাক্স এরর না আসে)
+    btn_480_html = ""
+    if link_480:
+        btn_480_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_480}\', \'{link_480}\')" target="_self" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
+
+    btn_720_html = ""
+    if link_720:
+        btn_720_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_720}\', \'{link_720}\')" target="_self" style="background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 720p (HD)</span></a>'
+
+    btn_1080_html = ""
+    if link_1080:
+        btn_1080_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_1080}\', \'{link_1080}\')" target="_self" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
+
     html_code = f"""<!-- MOVIE POST START -->
 <div style="text-align: center; margin-bottom: 20px;">
     <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
@@ -793,9 +797,9 @@ async def generate_movie_html_output(client, chat_id):
 <div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; text-align: center; margin: 20px 0;">
     <h3 style="color: #fff; text-transform: uppercase; margin-top: 0;">Download Links:</h3>
     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;">
-        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_480 + "', '" + link_480 + "')\\" target='_self' style='background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 480p (SD)</span></a>" if link_480 else ""}
-        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_720 + "', '" + link_720 + "')\\" target='_self' style='background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 720p (HD)</span></a>" if link_720 else ""}
-        {"<a href='javascript:void(0);' onclick=\\"handleDownloadClick(this, '" + ad_1080 + "', '" + link_1080 + "')\\" target='_self' style='background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;'><span class='btn-label-text'>📥 Download 1080p (FullHD)</span></a>" if link_1080 else ""}
+        {btn_480_html}
+        {btn_720_html}
+        {btn_1080_html}
     </div>
 </div>
 
@@ -830,11 +834,12 @@ function handleDownloadClick(element, adLink, fileLink) {{
     await client.send_message(chat_id, f"<pre><code>{html.escape(html_code)}</code></pre>", parse_mode=ParseMode.HTML)
     user_states[chat_id] = {} 
 
-# ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
+# ওয়েব সিরিজ কোড জেনারেটর
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
     episodes = user_states[chat_id]['episodes']
+    user_direct_link = user_states[chat_id].get('direct_link', '')
 
     episode_buttons_html = ""
     for ep in episodes:
@@ -875,8 +880,8 @@ async def generate_series_html_output(client, chat_id):
     <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
 </div>
 
-<!-- دانلود করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
-<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
+<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স -->
+<div style="margin: 15px 0; padding: 12px; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px; text-align: left; font-size: 12px; color: #aaa; line-height: 1.5; font-family: sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
             <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
