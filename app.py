@@ -293,6 +293,26 @@ async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ
     await client.send_message(chat_id, text, reply_markup=markup)
 
 
+# ডাবল-সেফটি কোড সেন্ডার মেকানিজম (টেক্সট ফেইল হলে স্বয়ংক্রিয়ভাবে মেমোরি ফাইল ডেলিভারি)
+async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
+    try:
+        escaped_code = html.escape(html_code)
+        await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        print(f"Text code dispatch failed: {e}. Falling back to dynamic file attachment generator...")
+        try:
+            file_data = io.BytesIO(html_code.encode('utf-8'))
+            file_data.name = filename
+            await client.send_document(
+                chat_id,
+                document=file_data,
+                caption="⚠️ কোডের সাইজ বড় অথবা টেলিগ্রাম রেন্ডারিং লিমিটের কারণে এটি সরাসরি ফাইল হিসেবে পাঠানো হলো। ফাইলটি ডাউনলোড করে ওপেন করলেই সম্পূর্ণ কোডটি পেয়ে যাবেন।"
+            )
+        except Exception as file_err:
+            print(f"File attachment dispatch failed: {file_err}")
+            await client.send_message(chat_id, "❌ কোডটি কোনো উপায়ে পাঠানো সম্ভব হচ্ছে না।")
+
+
 # ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
 
 @app.on_message(filters.command("set_ad") & filters.private)
@@ -679,7 +699,7 @@ async def search_tmdb(client, chat_id, query, post_type):
                 button_text = f"{title} ({year})"
                 markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
                 
-            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাфলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
             await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
     except Exception as e:
@@ -829,10 +849,11 @@ function handleDownloadClick(element, adLink, fileLink) {{
 <!-- MOVIE POST END -->"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # ক্যারেক্টার লিমিট বাইপাস ও সুরক্ষিত পার্সিং-এর মাধ্যমে কোড ব্লকে সরাসরি ডেলিভারি
-    import html
-    escaped_code = html.escape(html_code)
-    await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+    
+    # সুরক্ষিত কোড ডিসপ্যাচ
+    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
+    
     user_states[chat_id] = {} 
 
 # ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
@@ -929,10 +950,11 @@ function handleDownloadClick(element, adLink, fileLink) {{
 <!-- TV SHOW POST END -->"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # বটের রেসপন্সে কোড হাইড এরর এড়াতে ParseMode ও html.escape যুক্ত করা হলো
-    import html
-    escaped_code = html.escape(html_code)
-    await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
+    
+    # সুরক্ষিত কোড ডিসপ্যাচ
+    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
+    
     user_states[chat_id] = {}
 
 
@@ -960,7 +982,7 @@ if __name__ == '__main__':
             async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
                 res = await resp.json()
             if res.get('ok'):
-                print("✅ Database Channel Peer resolved and cached successfully via HTTP!")
+                print(" Database Channel Peer resolved and cached successfully via HTTP!")
                 # ডামি মেসেজটি মুছে ফেলা হচ্ছে
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
                 await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
