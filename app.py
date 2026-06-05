@@ -58,7 +58,7 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
+# লেওআউট ও স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
 
 # ডাটাবেজ ফাইল পাথ ও প্রসেসিং
@@ -100,7 +100,7 @@ def load_system_db():
         except Exception:
             pass
     return {
-        'owner_ads': ['https://www.highrateprofit.com/default-owner-key'],
+        'owner_ads': ['https://omg10.com/4/11047054'],
         'owner_share': 20, 
         'user_ads': {}     
     }
@@ -151,7 +151,7 @@ async def upload_image_to_cloud(file_id):
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (আইজিজিবি - এটি সুপার ফাস্ট এবং ক্লাউডে স্থায়ী)
+        # পদ্ধতি ১: ImgBB 
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
                 url = "https://api.imgbb.com/1/upload"
@@ -224,7 +224,7 @@ async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, 
     except Exception as e:
         print(f"Async HTTP send file_id failed: {e}")
 
-    # ব্যাকআপ ফরোয়ার্ড
+    # ব্যাকআপ ফরোয়ার্ড মেকানিজম
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
         payload = {
@@ -270,7 +270,7 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception:
             pass
 
-# ডাইনামিক রেভিনিউ শেয়ারিং এবং র্যান্ডম লিঙ্ক রোটেশন মেকানিজম (100% ওনার সেফটি নেট সহ)
+# ডাইনামিক রেভিনিউ শেয়ারিং এবং র্যান্ডম লিঙ্ক রোটেশন মেকানিজম
 def get_button_ad_link(chat_id):
     owner_share = system_db.get('owner_share', 20)
     owner_ads = system_db.get('owner_ads', [])
@@ -293,15 +293,13 @@ async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ
     ])
     await client.send_message(chat_id, text, reply_markup=markup)
 
-# ক্যারেক্টার লিমিট বাইপাস করে সুরক্ষিতভাবে কোড ডেলিভারি করার মাস্টার-ফাংশন (চ্যাট কপিব্লক + ফাইল ফলব্যাক)
+# ক্যারেক্টার লিমিট বাইপাস করে সুরক্ষিতভাবে কোড ডেলিভারি করার মাস্টার-ফাংশন
 async def send_code_to_user(client, chat_id, html_code, title="post_code"):
     try:
         escaped_code = html.escape(html_code)
-        # যদি কোড সাইট ৩,৮০০ ক্যারেক্টারের কম হয়, তবে কপি ব্লকে পাঠানো হবে
         if len(escaped_code) < 3800:
             await client.send_message(chat_id, f"<pre><code>{escaped_code}</code></pre>", parse_mode=ParseMode.HTML)
         else:
-            # অতিরিক্ত বড় ফাইল হলে ক্র্যাশ এড়াতে মেমোরি টেক্সট ফাইল আকারে পাঠানো হবে
             file_data = io.BytesIO(html_code.encode('utf-8'))
             file_data.name = f"{title.replace(' ', '_')}_Blogger_Code.txt"
             await client.send_document(
@@ -310,7 +308,6 @@ async def send_code_to_user(client, chat_id, html_code, title="post_code"):
                 caption="📝 **এইচটিএমএল কোডটি বড় হওয়ায় ফাইল আকারে পাঠানো হলো!**\n\nফাইলটি ডাউনলোড করে ভেতরের সম্পূর্ণ কোডটি কপি করে নিন।"
             )
     except Exception as e:
-        # কোনো কারণে পার্সিং ফেইল হলে সরাসরি ফাইল ফলব্যাক ট্র্যাকিং
         try:
             file_data = io.BytesIO(html_code.encode('utf-8'))
             file_data.name = "Blogger_Post_Code.txt"
@@ -368,7 +365,7 @@ async def set_owner_share(client, message):
         if 0 <= percent <= 100:
             system_db['owner_share'] = percent
             save_system_db()
-            await message.reply_text(f"✅ **ওনার সিক্রেট রেভিনিউ শেয়ার {percent}% সেট করা হয়েছে!**")
+            await message.reply_text(f"✅ **오너 시크릿 레베뉴 쉐어 {percent}% সেট করা হয়েছে!**")
         else:
             await message.reply_text("❌ পার্সেন্ট অবশ্যই ০ থেকে ১০০ এর মধ্যে হতে হবে।")
     except ValueError:
@@ -428,7 +425,6 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            # এসিঙ্ক্রোনাস কপি মেথড কল (সম্পূর্ণ থ্রেড লক মুক্ত)
             user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
             
             if user_msg_id:
@@ -438,8 +434,6 @@ async def handle_start(client, message):
                     "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
                 )
                 sent_warning = await client.send_message(chat_id, warning_text, parse_mode=ParseMode.MARKDOWN)
-                
-                # এসিঙ্ক্রোনাস ব্যাকগ্রাউন্ড ডিলিট টাস্ক
                 asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg_id, sent_warning.id], AUTO_DELETE_DELAY))
             else:
                 await client.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
@@ -507,6 +501,9 @@ async def handle_query(client, callback_query):
             await callback_query.answer("কোনো ফাইল ফরোয়ার্ড করা হয়নি!", show_alert=True)
 
 async def save_lang_and_proceed(client, chat_id, language):
+    if 'movie_data' not in user_states[chat_id]:
+        user_states[chat_id]['movie_data'] = {}
+        
     user_states[chat_id]['movie_data']['lang'] = language
     is_manual = 'is_manual' in user_states[chat_id]
 
@@ -529,6 +526,10 @@ async def save_lang_and_proceed(client, chat_id, language):
 async def handle_all_messages(client, message):
     chat_id = message.chat.id
     
+    # স্টার্ট কমান্ড চেক করা
+    if message.text and message.text.startswith("/"):
+        return
+        
     if chat_id not in user_states or 'step' not in user_states[chat_id]:
         user_states[chat_id] = {}
         await handle_start(client, message)
@@ -554,22 +555,24 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['is_manual'] = True
         user_states[chat_id]['step'] = 'waiting_for_manual_rating'
         await client.send_message(chat_id, "⭐ IMDb রেটিং লিখে পাঠান (উদা: 8.2/10):")
+        return
 
     elif state == 'waiting_for_manual_rating' and message.text:
         user_states[chat_id]['movie_data']['rating'] = message.text.strip()
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
         await send_language_picker(client, chat_id)
+        return
 
     elif state == 'waiting_for_manual_genres' and message.text:
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
+        return
 
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
-        # এপিআই দিয়ে ইমেজ লিঙ্ক ডিরেক্ট জেনারেশন (প্যারামিটার বাগ ফিক্সড)
         poster_url = await upload_image_to_cloud(photo_id)
         
         if poster_url:
@@ -578,6 +581,7 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "📸 এবার হোমপেজ হিরো স্লাইডারের জন্য মুভির **চ্যাপ্টা ব্যানার (Landscape Backdrop Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
+        return
 
     # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
@@ -591,6 +595,7 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
         else:
             await client.send_message(chat_id, "❌ ব্যানার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
+        return
 
     elif state == 'waiting_for_manual_plot' and message.text:
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
@@ -603,15 +608,15 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (অফিশিয়াল এপিআই লক বাইপাস হ্যাক) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট (১০০% সাকসেস)
-            db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            # বাগ ফিক্সড: এসিঙ্ক্রোনাস ফাংশন কল করার জন্য এখানে 'await' যুক্ত করা হয়েছে
+            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
             else:
@@ -636,8 +641,9 @@ async def handle_all_messages(client, message):
         elif state == 'waiting_for_1080p':
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
+        return
 
-    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার (লক বাইপাস সহ) ---
+    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -656,8 +662,8 @@ async def handle_all_messages(client, message):
                 file_type = 'document' if message.document else 'video'
                 file_id = message.document.file_id if message.document else message.video.file_id
                 
-                # অফিশিয়াল এপিআই এর মাধ্যমে ডাটাবেজ চ্যানেলে সরাসরি আপলোড ও আইডি জেনারেট
-                db_msg_id = save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+                # বাগ ফিক্সড: এখানেও 'await' হ্যান্ডলিং যুক্ত করা হয়েছে
+                db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
                 if db_msg_id:
                     file_msg_id = f"msg_{db_msg_id}"
                 else:
@@ -667,7 +673,7 @@ async def handle_all_messages(client, message):
                 user_states[chat_id]['temp_file_key'] = file_msg_id
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
                 await client.send_message(chat_id, "📝 **ফাইলটি যুক্ত হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
-                                          "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
+                                          "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch)")
             else:
                 await client.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
 
@@ -687,6 +693,7 @@ async def handle_all_messages(client, message):
             ])
             await client.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
                                       f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
+        return
 
 # TMDB সার্চ কুয়েরি
 async def search_tmdb(client, chat_id, query, post_type):
@@ -772,7 +779,6 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
-    # ডাইনামিক বাটন জেনারেটর (আলাদা পাইথন ভেরিয়েবলে আগে থেকে তৈরি করা হয়েছে যাতে কোনো সিনট্যাক্স এরর না আসে)
     btn_480_html = ""
     if link_480:
         btn_480_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_480}\', \'{link_480}\')" target="_self" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
@@ -785,33 +791,29 @@ async def generate_movie_html_output(client, chat_id):
     if link_1080:
         btn_1080_html = f'<a href="javascript:void(0);" onclick="handleDownloadClick(this, \'{ad_1080}\', \'{link_1080}\')" target="_self" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
 
-    html_code = f"""<!-- MOVIE POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+    html_code = f"""<div style="text-align: center; margin-bottom: 20px;">
+    <img src="{data.get('poster', '')}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data.get('title', 'Movie')} Poster"/>
+    <img src="{data.get('backdrop', '')}" style="display: none;" alt="{data.get('title', 'Movie')} Backdrop"/>
 </div>
 
 <div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
+    <div>Rating: {data.get('rating', 'N/A')}</div>
+    <div>Language: {data.get('lang', 'N/A')}</div>
 </div>
 
 <div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
     <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Movie Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
+    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data.get('title', 'N/A')}</div>
+    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data.get('rating', 'N/A')}</span></div>
+    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data.get('lang', 'N/A')}</div>
+    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data.get('genres', 'N/A')}</div>
 </div>
 
 <div style="margin: 20px 0;">
     <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
+    <p style="line-height: 1.6; color: #ccc;">{data.get('plot', '')}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
 <div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
@@ -826,7 +828,6 @@ async def generate_movie_html_output(client, chat_id):
     </p>
 </div>
 
-<!-- ডাউনলোড বাটন এরিয়া -->
 <div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; text-align: center; margin: 20px 0;">
     <h3 style="color: #fff; text-transform: uppercase; margin-top: 0;">Download Links:</h3>
     <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;">
@@ -836,7 +837,6 @@ async def generate_movie_html_output(client, chat_id):
     </div>
 </div>
 
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
 <script>
 function handleDownloadClick(element, adLink, fileLink) {{
     if (!adLink || adLink === 'None' || adLink === '') {{
@@ -859,18 +859,17 @@ function handleDownloadClick(element, adLink, fileLink) {{
     }}
 }}
 </script>
-<!-- MOVIE POST END -->"""
+"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # ক্যারেক্টার লিমিট বাইপাস ও সুরক্ষিত পার্সিং-এর মাধ্যমে কোড ডেলিভারি
-    await send_code_to_user(client, chat_id, html_code, data['title'])
+    await send_code_to_user(client, chat_id, html_code, data.get('title', 'Movie'))
+    user_states[chat_id] = {}
 
 # ওয়েব সিরিজ কোড জেনারেটর (অন-ক্লিক ডাবল-ক্লিক ডাইরেক্ট লিঙ্ক মেকানিজম)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
     episodes = user_states[chat_id]['episodes']
-    user_direct_link = user_states[chat_id].get('direct_link', '')
 
     episode_buttons_html = ""
     for ep in episodes:
@@ -878,40 +877,35 @@ async def generate_series_html_output(client, chat_id):
         ad_link = get_button_ad_link(chat_id)
         onclick_attr = f"onclick=\"handleDownloadClick(this, '{ad_link}', '{link}')\"" if ad_link else ""
         
-        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড
         episode_buttons_html += f"""        <a href="javascript:void(0);" {onclick_attr} target="_self" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
             <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;" class="btn-sub-text">Download Link</span>
             <span style="font-size: 13px; color: #fff;" class="btn-label-text">{ep['name']}</span>
         </a>\n"""
 
-    html_code = f"""<!-- TV SHOW POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+    html_code = f"""<div style="text-align: center; margin-bottom: 20px;">
+    <img src="{data.get('poster', '')}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data.get('title', 'Series')} Poster"/>
+    <img src="{data.get('backdrop', '')}" style="display: none;" alt="{data.get('title', 'Series')} Backdrop"/>
 </div>
 
 <div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
+    <div>Rating: {data.get('rating', 'N/A')}</div>
+    <div>Language: {data.get('lang', 'N/A')}</div>
 </div>
 
 <div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
     <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Series Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
+    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data.get('title', 'N/A')}</div>
+    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data.get('rating', 'N/A')}</span></div>
+    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data.get('lang', 'N/A')}</div>
+    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data.get('genres', 'N/A')}</div>
     <div style="margin-bottom: 10px;"><strong>Season:</strong> {season}</div>
 </div>
 
 <div style="margin: 20px 0;">
     <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
+    <p style="line-height: 1.6; color: #ccc;">{data.get('plot', '')}</p>
 </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
 <div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
     <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
@@ -926,14 +920,12 @@ async def generate_series_html_output(client, chat_id):
     </p>
 </div>
 
-<!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
 <div style="background: #0d0e12; padding: 25px; border-radius: 12px; border: 1.5px solid #222; margin: 20px 0;">
     <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center; font-size: 16px; letter-spacing: 0.5px; border-bottom: 2px solid #cc0000; display: inline-block; padding-bottom: 5px;">📥 Download Episodes (Season {season}):</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
 {episode_buttons_html}    </div>
 </div>
 
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক -->
 <script>
 function handleDownloadClick(element, adLink, fileLink) {{
     if (!adLink || adLink === 'None' || adLink === '') {{
@@ -956,40 +948,33 @@ function handleDownloadClick(element, adLink, fileLink) {{
     }}
 }}
 </script>
-<!-- TV SHOW POST END -->"""
+"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    # ক্যারেক্টার লিমিট বাইপাস ও সুরক্ষিত পার্সিং-এর মাধ্যমে কোড ডেলিভারি
-    await send_code_to_user(client, chat_id, html_code, f"{data['title']}_Season_{season}")
+    await send_code_to_user(client, chat_id, html_code, f"{data.get('title', 'Series')}_Season_{season}")
     user_states[chat_id] = {}
 
 
 # মূল এক্সেকিউশন
 if __name__ == '__main__':
-    # Flask Web Server রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
     
-    # পাইরোগ্রাম সচল করে অটো পিয়ার ক্যাশিং হ্যাক চালু করা
     async def main():
         global http_session
         print("Starting Pyrogram Bot Client...")
         await app.start()
         
-        # গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন সচল করা
         http_session = aiohttp.ClientSession()
         
-        # স্বয়ংক্রিয় পিয়ার রিজলভার হ্যাক ট্রিগার (রিস্টার্টের পর চ্যানেলের মেসেজ আটকে থাকার সমাধান)
         try:
             print("Resolving and caching Database Channel Peer...")
-            # HTTP API দ্বারা চ্যানেলে সিস্টেম মেসেজ পাঠিয়ে কানেকশন সচল করা
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
             async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
                 res = await resp.json()
             if res.get('ok'):
                 print("✅ Database Channel Peer resolved and cached successfully via HTTP!")
-                # ডামি মেসেজটি মুছে ফেলা হচ্ছে
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
                 await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
         except Exception as e:
@@ -998,10 +983,8 @@ if __name__ == '__main__':
         print("Bot is successfully running and listening for requests...")
         await idle()
         
-        # সেশন বন্ধ করা হচ্ছে
         if http_session:
             await http_session.close()
         await app.stop()
 
-    # asyncio ইভেন্ট লুপের মাধ্যমে রান করা হচ্ছে
     asyncio.get_event_loop().run_until_complete(main())
