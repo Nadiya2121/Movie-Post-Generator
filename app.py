@@ -13,42 +13,30 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
 
 # --- কনফিগারেশন এরিয়া ---
-API_ID = int(os.environ.get('API_ID', 29462738)) # আপনার টেলিগ্রাম এপিআই আইডি (my.telegram.org থেকে সংগৃহীত)
-API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') # আপনার টেলিগ্রাম এপিআই হ্যাশ
+API_ID = int(os.environ.get('API_ID', 29462738)) 
+API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') 
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
 
-# আপনার পার্সোনাল টেলিগ্রাম অ্যাকাউন্ট আইডি
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
-
-# আপনার প্রাইভেট ডাটাবেজ চ্যানেলের আইডি (অবশ্যই -100 সহ)
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
 
-# ওনার সিক্রেট রেভিনিউ শেয়ার কনফিগারেশন
 OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/11047054') 
 REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
-
-# --- ImgBB এপিআই কী কনফিগারেশন ---
 IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70a') 
 
-# ফাইল অটো-ডিলিট হওয়ার সময়সীমা (৫ মিনিট)
 AUTO_DELETE_DELAY = 300 
 
-# গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন ভেরিয়েবল
 http_session = None
-
-# Flask অ্যাপ তৈরি (Koyeb/Render পোর্ট সচল রাখার জন্য)
 web_app = Flask(__name__)
-
-# --- ইন-মেমোরি অস্থায়ী কোড স্টোরেজ ডিকশনারি ---
 temp_codes = {}
 
 @web_app.route('/')
 def home():
     return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
 
-# --- এক ক্লিকে কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
+# --- প্রিমিয়াম ও আধুনিক ওয়েব পেইজ ডিজাইন ---
 @web_app.route('/code/<code_id>')
 def view_code(code_id):
     code_data = None
@@ -64,7 +52,7 @@ def view_code(code_id):
         code_data = temp_codes.get(code_id)
         
     if not code_data:
-        return "<h3>❌ কোডটি পাওয়া যায়নি অথবা মেয়াদ শেষ হয়ে গেছে!</h3>", 404
+        return "<h3 style='color: #ef4444; font-family: sans-serif; text-align: center; margin-top: 50px;'>❌ কোডটি পাওয়া যায়নি অথবা মেয়াদ শেষ হয়ে গেছে!</h3>", 404
         
     escaped_html = html.escape(code_data)
     
@@ -74,36 +62,132 @@ def view_code(code_id):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Copy Post Code - BD Movie Zone</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
     <style>
-        body {{ background-color: #0d0e12; color: #f1f5f9; font-family: 'Poppins', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }}
-        .container {{ background: #111217; border: 1px solid #222; border-radius: 12px; padding: 30px; max-width: 800px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.5); box-sizing: border-box; }}
-        h1 {{ font-size: 20px; color: #38bdf8; margin-top: 0; text-align: center; border-bottom: 1px solid #222; padding-bottom: 15px; }}
-        .btn {{ background: linear-gradient(135deg, #38bdf8, #0284c7); color: #000; font-weight: bold; border: none; padding: 14px 28px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: 0.3s; display: block; width: 100%; margin-bottom: 20px; text-align: center; font-family: 'Poppins', sans-serif; }}
-        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 5px 15px rgba(56, 189, 248, 0.4); }}
-        pre {{ background: #07080a; padding: 15px; border-radius: 8px; overflow-x: auto; max-height: 400px; border: 1px solid #1e293b; font-size: 13px; color: #a7f3d0; }}
-        code {{ font-family: 'Courier New', Courier, monospace; }}
-        .footer {{ margin-top: 20px; font-size: 12px; color: #4b5563; text-align: center; }}
+        * {{ box-sizing: border-box; }}
+        body {{ 
+            background-color: #08090c; 
+            background-image: radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.08) 0, transparent 50%), radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.05) 0, transparent 50%);
+            color: #f1f5f9; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+        }}
+        .container {{ 
+            background: rgba(17, 18, 24, 0.8); 
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08); 
+            border-radius: 20px; 
+            padding: 40px; 
+            max-width: 850px; 
+            width: 100%; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6); 
+        }}
+        h1 {{ 
+            font-size: 24px; 
+            font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-top: 0; 
+            text-align: center; 
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08); 
+            padding-bottom: 20px; 
+            letter-spacing: -0.5px;
+        }}
+        .btn {{ 
+            background: linear-gradient(135deg, #38bdf8, #0284c7); 
+            color: #ffffff; 
+            font-weight: 600; 
+            border: none; 
+            padding: 16px 28px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%; 
+            margin-bottom: 24px; 
+            text-align: center; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
+        }}
+        .btn:hover {{ 
+            transform: translateY(-2px); 
+            box-shadow: 0 8px 25px rgba(56, 189, 248, 0.4); 
+            filter: brightness(1.1);
+        }}
+        .btn:active {{
+            transform: translateY(1px);
+        }}
+        pre {{ 
+            background: #030406; 
+            padding: 20px; 
+            border-radius: 12px; 
+            overflow-x: auto; 
+            max-height: 400px; 
+            border: 1px solid rgba(255, 255, 255, 0.05); 
+            font-size: 14px; 
+            color: #34d399; 
+        }}
+        pre::-webkit-scrollbar {{
+            width: 8px;
+            height: 8px;
+        }}
+        pre::-webkit-scrollbar-track {{
+            background: #030406;
+        }}
+        pre::-webkit-scrollbar-thumb {{
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }}
+        pre::-webkit-scrollbar-thumb:hover {{
+            background: rgba(255, 255, 255, 0.2);
+        }}
+        code {{ 
+            font-family: 'Fira Code', Consolas, Monaco, monospace; 
+        }}
+        .footer {{ 
+            margin-top: 24px; 
+            font-size: 13px; 
+            color: #64748b; 
+            text-align: center; 
+            font-weight: 500;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📋 BD Movie Zone - Blogger HTML Code</h1>
-        <button class="btn" id="copyBtn" onclick="copyToClipboard()">📋 Click to Copy Code</button>
+        <h1>📋 BD Movie Zone - HTML Code Export</h1>
+        <button class="btn" id="copyBtn" onclick="copyToClipboard()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span id="btnText">Click to Copy Code</span>
+        </button>
         <pre><code id="codeBlock">{escaped_html}</code></pre>
     </div>
-    <div class="footer">Developed by BD Movie Zone Bot System</div>
+    <div class="footer">Powered by BD Movie Zone Bot Engine</div>
     <script>
         function copyToClipboard() {{
             var codeText = document.getElementById("codeBlock").innerText;
             navigator.clipboard.writeText(codeText).then(function() {{
                 var btn = document.getElementById("copyBtn");
-                btn.innerHTML = "✅ Code Copied Successfully!";
+                var btnText = document.getElementById("btnText");
+                btnText.innerHTML = "Code Copied Successfully!";
                 btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+                btn.style.boxShadow = "0 8px 25px rgba(16, 185, 129, 0.3)";
                 setTimeout(function() {{
-                    btn.innerHTML = "📋 Click to Copy Code";
+                    btnText.innerHTML = "Click to Copy Code";
                     btn.style.background = "linear-gradient(135deg, #38bdf8, #0284c7)";
-                }}, 2000);
+                    btn.style.boxShadow = "0 4px 15px rgba(56, 189, 248, 0.25)";
+                }}, 2500);
             }}).catch(function(err) {{
                 alert("Failed to copy: " + err);
             }});
@@ -117,7 +201,6 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# Pyrogram ক্লায়েন্ট ইনিশিয়েট করা
 app = Client(
     "movie_post_bot",
     api_id=API_ID,
@@ -125,12 +208,10 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- スマート কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
+# --- স্মার্ট কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
 async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
-    # ইউনিক আইডি তৈরি
     code_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
     
-    # ডেটাবেজে সেভ (MongoDB থাকলে সেখানে, না থাকলে ইন-মেমোরি)
     if db_mongo is not None:
         try:
             db_mongo['shared_codes'].update_one(
@@ -144,11 +225,9 @@ async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
     else:
         temp_codes[code_id] = html_code
 
-    # ডোমেইন লিংক জেনারেট (আপনার Koyeb ডোমেইন URL এখানে সেট হবে)
     app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
     share_link = f"{app_url}/code/{code_id}"
 
-    # ইনলাইন বাটনে কোড লিংক পাঠানো
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 এক ক্লিকে কোড কপি করুন", url=share_link)]
     ])
@@ -160,13 +239,9 @@ async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
         reply_markup=markup
     )
 
-# মাল্টি-ইউজার স্টেট ট্র্যাকিং ডিকশনারি
 user_states = {}
-
-# ডাটাবেজ ফাইল পাথ ও প্রসেসিং
 DB_FILE = 'db_system.json'
 
-# --- MongoDB কানেকশন চেক ---
 MONGO_URI = os.environ.get('MONGO_URI') 
 mongo_client = None
 db_mongo = None
@@ -231,14 +306,12 @@ def save_system_db():
     except Exception:
         pass
 
-# ১০০% এসিঙ্ক্রোনাস ও আল্ট্রা-ফাস্ট ডাবল-লেয়ার ইমেজ আপলোডার ফাংশন (ImgBB + Catbox + Pixhost)
 async def upload_image_to_cloud(file_id):
     global http_session
     if not http_session:
         return None
         
     try:
-        # ১. টেলিগ্রামের অফিসিয়াল HTTP API থেকে ডাউনলোডের ডিরেক্ট ইউআরএল জেনারেট
         get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
         async with http_session.get(get_file_url, timeout=10) as resp:
             res = await resp.json()
@@ -246,14 +319,13 @@ async def upload_image_to_cloud(file_id):
             return None
         file_path = res['result']['file_path']
         
-        # ২. এসিঙ্ক্রোনাস উপায়ে ইমেজ বাইটস মেমোরিতে ডাউনলোড করা হচ্ছে
         download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         async with http_session.get(download_url, timeout=12) as resp:
             img_data = await resp.read()
         if not img_data:
             return None
 
-        # পদ্ধতি ১: ImgBB (আইজিজিবি - এটি মুভি থাম্বনেইলের জন্য অত্যন্ত দ্রুত ও স্থায়ী)
+        # ImgBB
         if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
                 url = "https://api.imgbb.com/1/upload"
@@ -269,7 +341,7 @@ async def upload_image_to_cloud(file_id):
             except Exception as e:
                 print(f"ImgBB failed: {e}")
 
-        # পদ্ধতি ২: Catbox.moe
+        # Catbox
         try:
             url = "https://catbox.moe/user/api.php"
             form_data = aiohttp.FormData()
@@ -283,26 +355,10 @@ async def upload_image_to_cloud(file_id):
         except Exception as e:
             print(f"Catbox failed: {e}")
 
-        # পদ্ধতি ৩: Pixhost.to
-        try:
-            url = "https://pixhost.to/api/upload"
-            form_data = aiohttp.FormData()
-            form_data.add_field('content_type', '0')
-            form_data.add_field('img', img_data, filename='photo.jpg', content_type='image/jpeg')
-            
-            async with http_session.post(url, data=form_data, timeout=10) as resp:
-                if resp.status == 200:
-                    res_data = await resp.json()
-                    if 'img_url' in res_data:
-                        return res_data['img_url']
-        except Exception as e:
-            print(f"Pixhost failed: {e}")
-
     except Exception as e:
-        print(f"All image upload services failed: {e}")
+        print(f"Image upload services failed: {e}")
     return None
 
-# সম্পূর্ণ এসিঙ্ক্রোনাস ও নন-ব্লকিং ফাইল ফরোয়ার্ডার
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session:
@@ -326,7 +382,6 @@ async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, 
     except Exception as e:
         print(f"Async HTTP send file_id failed: {e}")
 
-    # ব্যাকআপ ফরোয়ার্ড
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
         payload = {
@@ -342,7 +397,6 @@ async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, 
         print(f"Async HTTP Forward Failed: {e}")
     return None
 
-# সম্পূর্ণ এসিঙ্ক্রোনাস কপি মেসেজ ডেলিভারি
 async def send_file_to_user(to_chat_id, msg_id):
     global http_session
     if not http_session:
@@ -363,7 +417,6 @@ async def send_file_to_user(to_chat_id, msg_id):
         print(f"Async HTTP copyMessage failed: {e}")
     return None
 
-# অটো-ডিলিট এসিঙ্ক্রোনাস টাস্ক
 async def delete_messages_after_delay(chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
@@ -372,7 +425,6 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception:
             pass
 
-# ডাইনামিক রেভিনিউ শেয়ারিং এবং র্যান্ডম লিঙ্ক রোটেশন মেকানিজম
 def get_button_ad_link(chat_id):
     owner_share = system_db.get('owner_share', 20)
     owner_ads = system_db.get('owner_ads', [])
@@ -386,7 +438,6 @@ def get_button_ad_link(chat_id):
         return random.choice(owner_ads)
     return OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else ""
 
-# ভাষা সিলেকশন মেনু
 async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
@@ -501,7 +552,6 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            # এসিঙ্ক্রোনাস কপি মেথড কল (সম্পূর্ণ থ্রেড লক মুক্ত)
             user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
             
             if user_msg_id:
@@ -511,8 +561,6 @@ async def handle_start(client, message):
                     "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
                 )
                 sent_warning = await client.send_message(chat_id, warning_text, parse_mode=ParseMode.MARKDOWN)
-                
-                # এসিঙ্ক্রোনাস ব্যাকগ্রাউন্ড ডিলিট টাস্ক
                 asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg_id, sent_warning.id], AUTO_DELETE_DELAY))
             else:
                 await client.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
@@ -610,18 +658,15 @@ async def handle_all_messages(client, message):
     state = user_states[chat_id]['step']
     post_type = user_states[chat_id].get('type')
 
-    # সার্চ প্রসেস
     if state == 'waiting_for_search' and message.text:
         query = message.text.strip()
         await search_tmdb(client, chat_id, query, post_type)
         return
 
-    # কাস্টম ল্যাঙ্গুয়েজ প্রসেস
     elif state == 'waiting_for_custom_lang' and message.text:
         await save_lang_and_proceed(client, chat_id, message.text.strip())
         return
 
-    # --- ম্যানুয়াল পোস্ট কন্টেন্ট রিসিভার ---
     elif state == 'waiting_for_manual_title' and message.text:
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
         user_states[chat_id]['is_manual'] = True
@@ -639,7 +684,6 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
-    # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -652,7 +696,6 @@ async def handle_all_messages(client, message):
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
-    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -676,7 +719,6 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
@@ -709,7 +751,6 @@ async def handle_all_messages(client, message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
 
-    # --- ওয়েব সিরিজের ডাউনলোড ফাইল এবং নাম রিসিভার ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -759,7 +800,6 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
                                       f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
 
-# TMDB সার্চ কুয়েরি
 async def search_tmdb(client, chat_id, query, post_type):
     global http_session
     if not http_session:
@@ -790,7 +830,6 @@ async def search_tmdb(client, chat_id, query, post_type):
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
-# TMDB ডিটেইলস সংগ্রহ
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     global http_session
     if not http_session:
@@ -828,7 +867,10 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         print(f"Async TMDB Details Error: {e}")
         await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-# মুভি কোড জেনারেটর (সংশোধিত এসিঙ্ক্রোনাস নিরাপদ বাটন ইভেন্ট সিস্টেম)
+
+# ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
+
+# ১. মুভি কোড জেনারেটর (উন্নত ডাবল-ক্লিক এনিমেশন সহ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -843,92 +885,285 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
-    # নিরাপদ ডাইনামিক বাটন জেনারেটর (Standard URL-সহ যা CSP সিকিউরিটি ব্লক করে না)
+    # প্রিমিয়াম বাটন স্টাইলিং ও মার্কআপ
     btn_480_html = ""
     if link_480:
-        btn_480_html = f'<a href="{link_480}" data-ad="{ad_480}" class="download-btn" style="background: #222; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; border: 1px solid #444; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 480p (SD)</span></a>'
+        btn_480_html = f'''
+        <a href="{link_480}" data-ad="{ad_480}" class="download-btn btn-sd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 480p (SD)</span>
+        </a>'''
 
     btn_720_html = ""
     if link_720:
-        btn_720_html = f'<a href="{link_720}" data-ad="{ad_720}" class="download-btn" style="background: #cc0000; color: #fff; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 720p (HD)</span></a>'
+        btn_720_html = f'''
+        <a href="{link_720}" data-ad="{ad_720}" class="download-btn btn-hd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 720p (HD)</span>
+        </a>'''
 
     btn_1080_html = ""
     if link_1080:
-        btn_1080_html = f'<a href="{link_1080}" data-ad="{ad_1080}" class="download-btn" style="background: #38bdf8; color: #000; padding: 12px 25px; border-radius: 6px; font-weight: bold; text-decoration: none; transition: 0.3s; font-size:13px; display: inline-block;"><span class="btn-label-text">📥 Download 1080p (FullHD)</span></a>'
+        btn_1080_html = f'''
+        <a href="{link_1080}" data-ad="{ad_1080}" class="download-btn btn-fhd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 1080p (FullHD)</span>
+        </a>'''
 
     html_code = f"""<!-- MOVIE POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
-</div>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    .movie-container {{
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #e2e8f0;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 10px;
+    }}
+    .poster-wrapper {{
+        text-align: center;
+        margin-bottom: 30px;
+        position: relative;
+    }}
+    .poster-img {{
+        max-width: 320px;
+        width: 100%;
+        height: auto;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+        transition: transform 0.4s ease;
+    }}
+    .poster-img:hover {{
+        transform: scale(1.02);
+    }}
+    .info-card {{
+        background: rgba(17, 18, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 25px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }}
+    .info-card h3 {{
+        margin-top: 0;
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+    }}
+    .info-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+    }}
+    .info-item {{
+        font-size: 14px;
+        line-height: 1.5;
+    }}
+    .info-item strong {{
+        color: #94a3b8;
+    }}
+    .rating-badge {{
+        color: #fbbf24;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }}
+    .synopsis-section {{
+        margin: 25px 0;
+    }}
+    .synopsis-title {{
+        color: #f43f5e;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #f43f5e;
+        padding-left: 12px;
+        margin-bottom: 12px;
+    }}
+    .synopsis-text {{
+        line-height: 1.7;
+        color: #94a3b8;
+        font-size: 15px;
+    }}
+    .guide-box {{
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-left: 5px solid #38bdf8;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 25px 0;
+    }}
+    .guide-title {{
+        color: #38bdf8;
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }}
+    .guide-text {{
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #cbd5e1;
+    }}
+    .download-area {{
+        background: #0f1015;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 30px 20px;
+        text-align: center;
+        margin: 25px 0;
+    }}
+    .download-area h3 {{
+        color: #ffffff;
+        font-size: 18px;
+        font-weight: 800;
+        margin-top: 0;
+        margin-bottom: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }}
+    .button-container {{
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-width: 400px;
+        margin: 0 auto;
+    }}
+    .download-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 16px 24px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 14px;
+        text-decoration: none;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        border: none;
+    }}
+    .btn-sd {{
+        background: rgba(255, 255, 255, 0.05);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }}
+    .btn-sd:hover {{
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+    }}
+    .btn-hd {{
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: #ffffff;
+        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
+    }}
+    .btn-hd:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
+    }}
+    .btn-fhd {{
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        color: #ffffff;
+        box-shadow: 0 4px 15px rgba(6, 182, 212, 0.2);
+    }}
+    .btn-fhd:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(6, 182, 212, 0.35);
+    }}
+    @keyframes pulse-btn {{
+        0% {{ transform: scale(1); }}
+        50% {{ transform: scale(1.03); }}
+        100% {{ transform: scale(1); }}
+    }}
+    .btn-clicked {{
+        animation: pulse-btn 1.5s infinite;
+    }}
+</style>
 
-<div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
-</div>
+<div class="movie-container">
+    <div class="poster-wrapper">
+        <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
+        <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+    </div>
 
-<div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
-    <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Movie Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
-</div>
+    <!-- মেটা ডেটা (সার্চ ক্রলার ও ফিল্টারের জন্য সংরক্ষিত) -->
+    <div class="info-text" style="display: none;">
+        <div>Rating: {data['rating']}</div>
+        <div>Language: {data['lang']}</div>
+    </div>
 
-<div style="margin: 20px 0;">
-    <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
-</div>
+    <div class="info-card">
+        <h3>Movie Information</h3>
+        <div class="info-grid">
+            <div class="info-item"><strong>Title:</strong> {data['title']}</div>
+            <div class="info-item"><strong>IMDb Rating:</strong> <span class="rating-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{data['rating']}</span></div>
+            <div class="info-item"><strong>Language:</strong> {data['lang']}</div>
+            <div class="info-item"><strong>Genres:</strong> {data['genres']}</div>
+        </div>
+    </div>
 
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
-<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
-    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
-            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-        </svg>
-        ডাউনলোড করার সঠিক নিয়ম:
-    </strong>
-    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
-        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
-        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
-        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
-    </p>
-</div>
+    <div class="synopsis-section">
+        <div class="synopsis-title">Synopsis / Storyline</div>
+        <div class="synopsis-text">{data['plot']}</div>
+    </div>
 
-<!-- ডাউনলোড বাটন এরিয়া -->
-<div style="background: #0d0e12; padding: 20px; border-radius: 8px; border: 1px solid #222; text-align: center; margin: 20px 0;">
-    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0;">Download Links:</h3>
-    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 15px;">
-        {btn_480_html}
-        {btn_720_html}
-        {btn_1080_html}
+    <div class="guide-box">
+        <div class="guide-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            ডাউনলোড করার সঠিক নিয়ম:
+        </div>
+        <p class="guide-text">
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+        </p>
+    </div>
+
+    <div class="download-area">
+        <h3>Secure Download Links</h3>
+        <div class="button-container">
+            {btn_480_html}
+            {btn_720_html}
+            {btn_1080_html}
+        </div>
     </div>
 </div>
 
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক (CSS এবং CSP ফ্রেন্ডলি ইভেন্ট লিসেনার) -->
 <script>
 document.querySelectorAll('.download-btn').forEach(function(element) {{
     element.addEventListener('click', function(e) {{
         var adLink = this.getAttribute('data-ad');
-        var fileLink = this.getAttribute('href');
         
         if (!adLink || adLink === 'None' || adLink === '') {{
-            return; // adLink না থাকলে সরাসরি Telegram URL ওপেন করবে
+            return; 
         }}
         
         if (this.getAttribute('data-clicked') !== 'true') {{
-            e.preventDefault(); // প্রথম ক্লিকে Redirect বন্ধ করবে
+            e.preventDefault(); 
             window.open(adLink, '_blank');
             this.setAttribute('data-clicked', 'true');
+            this.classList.add('btn-clicked');
+            
             this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
             this.style.borderColor = '#10b981';
-            this.style.color = '#fff';
+            this.style.color = '#ffffff';
+            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
             
             var mainText = this.querySelector('.btn-label-text');
             if (mainText) {{
-                mainText.innerHTML = '📥 Click Again to Download';
+                mainText.innerHTML = '⚡ Click Again to Download';
             }}
         }}
     }});
@@ -937,98 +1172,266 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
 <!-- MOVIE POST END -->"""
 
     await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    
-    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
-    
-    user_states[chat_id] = {} 
+    user_states[chat_id] = {}
 
-# ওয়েব সিরিজ কোড জেনারেটর (সংশোধিত এসিঙ্ক্রোনাস নিরাপদ বাটন ইভেন্ট সিস্টেম)
+
+# ২. ওয়েব সিরিজ কোড জেনারেটর (গ্রিড-কার্ড এবং প্রিমিয়াম বাটন ট্রানজিশন সহ)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
     episodes = user_states[chat_id]['episodes']
-    user_direct_link = user_states[chat_id].get('direct_link', '')
 
     episode_buttons_html = ""
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
         ad_link = get_button_ad_link(chat_id)
         
-        # প্রিমিয়াম কালারফুল ডাবল-টোন ডিজাইন বাটন কোড (Standard URL-সহ)
-        episode_buttons_html += f"""        <a href="{link}" data-ad="{ad_link}" class="download-btn series-btn" style="background: linear-gradient(135deg, #1e1b4b, #111217); color: #fff; padding: 14px 10px; border-radius: 8px; font-weight: 800; text-decoration: none; border: 2px solid #38bdf8; text-align: center; transition: 0.3s; font-size: 13px; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 50px;">
-            <span style="color: #38bdf8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;" class="btn-sub-text">Download Link</span>
-            <span style="font-size: 13px; color: #fff;" class="btn-label-text">{ep['name']}</span>
-        </a>\n"""
+        episode_buttons_html += f"""
+        <a href="{link}" data-ad="{ad_link}" class="download-btn series-btn">
+            <span class="btn-sub-text">Episode Downloader</span>
+            <span class="btn-label-text">{ep['name']}</span>
+        </a>"""
 
     html_code = f"""<!-- TV SHOW POST START -->
-<div style="text-align: center; margin-bottom: 20px;">
-    <!-- ১ম ইমেজ (গ্রিড কার্ড পোস্টার) -->
-    <img src="{data['poster']}" style="max-width: 320px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; height: auto;" alt="{data['title']} Poster"/>
-    <!-- ২য় ইমেজ (হোমপেজ স্লাইডার ব্যানার - যা পোস্ট পেজে হিডেন থাকবে) -->
-    <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    .series-container {{
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #e2e8f0;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 10px;
+    }}
+    .poster-wrapper {{
+        text-align: center;
+        margin-bottom: 30px;
+    }}
+    .poster-img {{
+        max-width: 320px;
+        width: 100%;
+        height: auto;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+        transition: transform 0.4s ease;
+    }}
+    .poster-img:hover {{
+        transform: scale(1.02);
+    }}
+    .info-card {{
+        background: rgba(17, 18, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 25px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }}
+    .info-card h3 {{
+        margin-top: 0;
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+    }}
+    .info-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+    }}
+    .info-item {{
+        font-size: 14px;
+        line-height: 1.5;
+    }}
+    .info-item strong {{
+        color: #94a3b8;
+    }}
+    .rating-badge {{
+        color: #fbbf24;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }}
+    .synopsis-section {{
+        margin: 25px 0;
+    }}
+    .synopsis-title {{
+        color: #f43f5e;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #f43f5e;
+        padding-left: 12px;
+        margin-bottom: 12px;
+    }}
+    .synopsis-text {{
+        line-height: 1.7;
+        color: #94a3b8;
+        font-size: 15px;
+    }}
+    .guide-box {{
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-left: 5px solid #38bdf8;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 25px 0;
+    }}
+    .guide-title {{
+        color: #38bdf8;
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }}
+    .guide-text {{
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #cbd5e1;
+    }}
+    .download-area {{
+        background: #0f1015;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 30px 20px;
+        margin: 25px 0;
+    }}
+    .download-area h3 {{
+        color: #ffffff;
+        font-size: 18px;
+        font-weight: 800;
+        margin-top: 0;
+        margin-bottom: 24px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        text-align: center;
+    }}
+    .grid-container {{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 16px;
+    }}
+    .series-btn {{
+        background: rgba(17, 24, 39, 0.8);
+        border: 1.5px solid rgba(56, 189, 248, 0.3);
+        color: #ffffff;
+        border-radius: 14px;
+        padding: 16px 12px;
+        text-decoration: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        min-height: 75px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+    }}
+    .series-btn:hover {{
+        border-color: #38bdf8;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
+        background: rgba(56, 189, 248, 0.05);
+    }}
+    .btn-sub-text {{
+        font-size: 9px;
+        text-transform: uppercase;
+        color: #38bdf8;
+        font-weight: 800;
+        letter-spacing: 1px;
+    }}
+    .btn-label-text {{
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+    }}
+    @keyframes pulse-btn {{
+        0% {{ transform: scale(1); }}
+        50% {{ transform: scale(1.03); }}
+        100% {{ transform: scale(1); }}
+    }}
+    .btn-clicked {{
+        animation: pulse-btn 1.5s infinite;
+    }}
+</style>
+
+<div class="series-container">
+    <div class="poster-wrapper">
+        <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
+        <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+    </div>
+
+    <div class="info-text" style="display: none;">
+        <div>Rating: {data['rating']}</div>
+        <div>Language: {data['lang']}</div>
+    </div>
+
+    <div class="info-card">
+        <h3>Series Information</h3>
+        <div class="info-grid">
+            <div class="info-item"><strong>Title:</strong> {data['title']}</div>
+            <div class="info-item"><strong>IMDb Rating:</strong> <span class="rating-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{data['rating']}</span></div>
+            <div class="info-item"><strong>Language:</strong> {data['lang']}</div>
+            <div class="info-item"><strong>Genres:</strong> {data['genres']}</div>
+            <div class="info-item"><strong>Season:</strong> {season}</div>
+        </div>
+    </div>
+
+    <div class="synopsis-section">
+        <div class="synopsis-title">Synopsis / Storyline</div>
+        <div class="synopsis-text">{data['plot']}</div>
+    </div>
+
+    <div class="guide-box">
+        <div class="guide-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            ডাউনলোড করার সঠিক নিয়ম:
+        </div>
+        <p class="guide-text">
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+        </p>
+    </div>
+
+    <div class="download-area">
+        <h3>📥 Episode List (Season {season})</h3>
+        <div class="grid-container">
+            {episode_buttons_html}
+        </div>
+    </div>
 </div>
 
-<div class="info-text" style="display: none;">
-    <div>Rating: {data['rating']}</div>
-    <div>Language: {data['lang']}</div>
-</div>
-
-<div class="movie-info-block" style="background: #111217; padding: 20px; border-radius: 8px; border: 1px solid #222; margin: 20px 0; color: #f1f5f9; font-family: 'Poppins', sans-serif;">
-    <h3 style="margin-top: 0; color: #38bdf8; text-transform: uppercase;">Series Info:</h3>
-    <div style="margin-bottom: 10px;"><strong>Title:</strong> {data['title']}</div>
-    <div style="margin-bottom: 10px;"><strong>IMDb Rating:</strong> <span style="color:#facc15;"><i class="fas fa-star"></i> {data['rating']}</span></div>
-    <div style="margin-bottom: 10px;"><strong>Language:</strong> {data['lang']}</div>
-    <div style="margin-bottom: 10px;"><strong>Genres:</strong> {data['genres']}</div>
-    <div style="margin-bottom: 10px;"><strong>Season:</strong> {season}</div>
-</div>
-
-<div style="margin: 20px 0;">
-    <h3 style="color: #cc0000; text-transform: uppercase; border-left: 4px solid #cc0000; padding-left: 10px;">Synopsis / Storyline:</h3>
-    <p style="line-height: 1.6; color: #ccc;">{data['plot']}</p>
-</div>
-
-<!-- ডাউনলোড করার নিয়ম নির্দেশিকা বক্স (ডার্ক ব্লু প্রিমিয়াম ডিজাইন) -->
-<div style="margin: 20px 0; padding: 15px; background: rgba(30, 58, 138, 0.2); border: 1.5px solid #1e40af; border-left: 5px solid #3b82f6; border-radius: 8px; text-align: left; font-family: 'Poppins', sans-serif; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
-    <strong style="color: #60a5fa; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; font-weight: bold;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16" style="color: #60a5fa; flex-shrink: 0;">
-            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-        </svg>
-        ডাউনলোড করার সঠিক নিয়ম:
-    </strong>
-    <p style="margin: 0; line-height: 1.6; color: #cbd5e1; font-size: 12.5px;">
-        ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করার সাথে সাথে একটি নতুন বিজ্ঞাপনের ট্যাব ওপেন হবে।<br/>
-        ২. বিজ্ঞাপন পেজটি লোড হতে দিয়ে আপনি এই মূল পেজে (Blogger) ফিরে আসুন।<br/>
-        ৩. এখন বাটনে <strong>"Click Again"</strong> লেখা দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
-    </p>
-</div>
-
-<!-- কন্টেন্ট সহ নিওন গ্রিড ডাউনলোড এরিয়া -->
-<div style="background: #0d0e12; padding: 25px; border-radius: 12px; border: 1.5px solid #222; margin: 20px 0;">
-    <h3 style="color: #fff; text-transform: uppercase; margin-top: 0; text-align: center; font-size: 16px; letter-spacing: 0.5px; border-bottom: 2px solid #cc0000; display: inline-block; padding-bottom: 5px;">📥 Download Episodes (Season {season}):</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 20px;">
-{episode_buttons_html}    </div>
-</div>
-
-<!-- ডাবল-ক্লিক জাভাস্ক্রিপ্ট কোডলজিক (CSS এবং CSP ফ্রেন্ডলি ইভেন্ট লিসেনার) -->
 <script>
 document.querySelectorAll('.download-btn').forEach(function(element) {{
     element.addEventListener('click', function(e) {{
         var adLink = this.getAttribute('data-ad');
-        var fileLink = this.getAttribute('href');
         
         if (!adLink || adLink === 'None' || adLink === '') {{
-            return; // adLink না থাকলে সরাসরি Telegram URL ওপেন করবে
+            return; 
         }}
         
         if (this.getAttribute('data-clicked') !== 'true') {{
-            e.preventDefault(); // প্রথম ক্লিকে Redirect বন্ধ করবে
+            e.preventDefault(); 
             window.open(adLink, '_blank');
             this.setAttribute('data-clicked', 'true');
+            this.classList.add('btn-clicked');
+            
             this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
             this.style.borderColor = '#10b981';
-            this.style.color = '#fff';
+            this.style.color = '#ffffff';
+            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
             
             var subText = this.querySelector('.btn-sub-text');
             var mainText = this.querySelector('.btn-label-text');
@@ -1041,40 +1444,31 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
 <!-- TV SHOW POST END -->"""
 
     await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
-    
-    # সুরক্ষিতভাবে সরাসরি Raw HTML ডিসপ্যাচ করা হচ্ছে
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
-    
     user_states[chat_id] = {}
 
 
 # মূল এক্সেকিউশন
 if __name__ == '__main__':
-    # Flask Web Server রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
     
-    # পাইরোগ্রাম সচল করে অটো পিয়ার ক্যাশিং হ্যাক চালু করা
     async def main():
         global http_session
         print("Starting Pyrogram Bot Client...")
         await app.start()
         
-        # গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন সচল করা
         http_session = aiohttp.ClientSession()
         
-        # স্বয়ংক্রিয় পিয়ার রিজলভার হ্যাক ট্রিগার (রিস্টার্টের পর চ্যানেলের মেসেজ আটকে থাকার সমাধান)
         try:
             print("Resolving and caching Database Channel Peer...")
-            # HTTP API দ্বারা চ্যানেলে সিস্টেম মেসেজ পাঠিয়ে কানেকশন সচল করা
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
             async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
                 res = await resp.json()
             if res.get('ok'):
-                print(" Database Channel Peer resolved and cached successfully via HTTP!")
-                # ডামি মেসেজটি মুছে ফেলা হচ্ছে
+                print(" Database Channel Peer resolved successfully!")
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
                 await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
         except Exception as e:
@@ -1083,10 +1477,8 @@ if __name__ == '__main__':
         print("Bot is successfully running and listening for requests...")
         await idle()
         
-        # সেশন বন্ধ করা হচ্ছে
         if http_session:
             await http_session.close()
         await app.stop()
 
-    # asyncio ইভেন্ট লুপের মাধ্যমে রান করা হচ্ছে
     asyncio.get_event_loop().run_until_complete(main())
