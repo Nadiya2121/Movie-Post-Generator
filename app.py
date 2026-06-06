@@ -36,7 +36,7 @@ temp_codes = {}
 def home():
     return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
 
-# --- প্রিমিয়াম ও আধুনিক ওয়েব পেইজ ডিজাইন ---
+# --- কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
 @web_app.route('/code/<code_id>')
 def view_code(code_id):
     code_data = None
@@ -182,7 +182,7 @@ def view_code(code_id):
                 var btnText = document.getElementById("btnText");
                 btnText.innerHTML = "Code Copied Successfully!";
                 btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
-                btn.style.boxShadow = "0 8px 25px rgba(16, 185, 129, 0.3)";
+                btn.style.boxShadow = "0 8px 25px rgba(16, 185, 129, 0.35)";
                 setTimeout(function() {{
                     btnText.innerHTML = "Click to Copy Code";
                     btn.style.background = "linear-gradient(135deg, #38bdf8, #0284c7)";
@@ -208,7 +208,7 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# --- স্মার্ট কোড জেনারেটর এবং লিংক ডিসপ্যাচার ---
+# --- লিংক ডিসপ্যাচার ---
 async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
     code_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
     
@@ -359,6 +359,38 @@ async def upload_image_to_cloud(file_id):
         print(f"Image upload services failed: {e}")
     return None
 
+
+# --- ডাইনামিক ও প্রিমিয়াম ক্যাপশন জেনারেটর ---
+def generate_premium_caption(chat_id, quality=None, episode_name=None):
+    data = user_states[chat_id].get('movie_data', {})
+    title = data.get('title', 'Unknown')
+    rating = data.get('rating', 'N/A')
+    lang = data.get('lang', 'N/A')
+    
+    if episode_name:
+        caption = (
+            f"📺 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⭐️ <b>IMDb:</b> {rating}\n"
+            f"🗣 <b>Language:</b> {lang}\n"
+            f"💿 <b>Episode:</b> {episode_name}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📥 <i>Downloaded via @{BOT_USERNAME}</i>"
+        )
+    else:
+        caption = (
+            f"🎬 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⭐️ <b>IMDb:</b> {rating}\n"
+            f"🗣 <b>Language:</b> {lang}\n"
+            f"💿 <b>Quality:</b> {quality}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📥 <i>Downloaded via @{BOT_USERNAME}</i>"
+        )
+    return caption
+
+
+# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার (ক্যাপশন ও পার্স মোড ফিক্সড)
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session:
@@ -368,7 +400,8 @@ async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, 
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
         payload = {
             "chat_id": DATABASE_CHANNEL_ID,
-            "caption": caption
+            "caption": caption,
+            "parse_mode": "HTML"
         }
         if file_type == 'document':
             payload["document"] = file_id
@@ -658,15 +691,18 @@ async def handle_all_messages(client, message):
     state = user_states[chat_id]['step']
     post_type = user_states[chat_id].get('type')
 
+    # সার্চ প্রসেস
     if state == 'waiting_for_search' and message.text:
         query = message.text.strip()
         await search_tmdb(client, chat_id, query, post_type)
         return
 
+    # কাস্টম ল্যাঙ্গুয়েজ প্রসেস
     elif state == 'waiting_for_custom_lang' and message.text:
         await save_lang_and_proceed(client, chat_id, message.text.strip())
         return
 
+    # --- ম্যানুয়াল পোস্ট কন্টেন্ট রিসিভার ---
     elif state == 'waiting_for_manual_title' and message.text:
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
         user_states[chat_id]['is_manual'] = True
@@ -684,6 +720,7 @@ async def handle_all_messages(client, message):
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
+    # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
         await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -696,6 +733,7 @@ async def handle_all_messages(client, message):
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
+    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -719,13 +757,25 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (ডাইনামিক ক্যাপশনসহ ডেটাবেজে আপলোড) ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
+            # কোন স্তরের ফাইল তা নির্ধারণ করা ও সঠিক প্রিমিয়াম ক্যাপশন জেনারেট করা
+            if state == 'waiting_for_480p':
+                quality_str = "480p (SD)"
+            elif state == 'waiting_for_720p':
+                quality_str = "720p (HD)"
+            else:
+                quality_str = "1080p (FullHD)"
+                
+            dynamic_caption = generate_premium_caption(chat_id, quality=quality_str)
+            
+            # ডাটাবেজে ফাইল আপলোড
+            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, dynamic_caption)
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
             else:
@@ -751,6 +801,7 @@ async def handle_all_messages(client, message):
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             await generate_movie_html_output(client, chat_id)
 
+    # --- ওয়েব সিরিজের ফাইল ও নাম রিসিভার ---
     elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
         if state == 'waiting_for_season' and message.text:
             user_states[chat_id]['season'] = message.text.strip()
@@ -766,40 +817,49 @@ async def handle_all_messages(client, message):
             
         elif state == 'waiting_for_episodes':
             if message.document or message.video:
-                file_type = 'document' if message.document else 'video'
-                file_id = message.document.file_id if message.document else message.video.file_id
+                # ফাইল ডেটা সাময়িকভাবে ধরে রাখা (এপিসোডের নাম পাওয়ার পর ক্যাপশনসহ আপলোড হবে)
+                user_states[chat_id]['temp_file_id'] = message.document.file_id if message.document else message.video.file_id
+                user_states[chat_id]['temp_file_type'] = 'document' if message.document else 'video'
+                user_states[chat_id]['temp_message_id'] = message.id
                 
-                db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, message.caption or "")
-                if db_msg_id:
-                    file_msg_id = f"msg_{db_msg_id}"
-                else:
-                    await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি! অনুগ্রহ করে নিশ্চিত করুন যে বটটি চ্যানেলে এডমিন হিসেবে আছে।")
-                    return
-                
-                user_states[chat_id]['temp_file_key'] = file_msg_id
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
-                await client.send_message(chat_id, "📝 **ফাইলটি যুক্ত হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
+                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
                                           "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
             else:
                 await client.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
 
         elif state == 'waiting_for_ep_name' and message.text:
             ep_title = message.text.strip()
-            file_key = user_states[chat_id]['temp_file_key']
             
-            user_states[chat_id]['episodes'].append({
-                'name': ep_title,
-                'key': file_key
-            })
+            # সাময়িক মেমোরি থেকে ডেটা রিকভারি
+            file_id = user_states[chat_id]['temp_file_id']
+            file_type = user_states[chat_id]['temp_file_type']
+            orig_msg_id = user_states[chat_id]['temp_message_id']
             
-            user_states[chat_id]['step'] = 'waiting_for_episodes'
+            # প্রিমিয়াম ডাইনামিক ক্যাপশন জেনারেশন
+            dynamic_caption = generate_premium_caption(chat_id, episode_name=ep_title)
             
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code")]
-            ])
-            await client.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
-                                      f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
+            # ডাটাবেজে নতুন ডাইনামিক ক্যাপশন সহ ফাইল সেভ করা
+            db_msg_id = await save_file_to_db_channel(chat_id, orig_msg_id, file_type, file_id, dynamic_caption)
+            
+            if db_msg_id:
+                file_key = f"msg_{db_msg_id}"
+                user_states[chat_id]['episodes'].append({
+                    'name': ep_title,
+                    'key': file_key
+                })
+                
+                user_states[chat_id]['step'] = 'waiting_for_episodes'
+                
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code")]
+                ])
+                await client.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
+                                          f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
+            else:
+                await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি!")
 
+# TMDB সার্চ কুয়েরি
 async def search_tmdb(client, chat_id, query, post_type):
     global http_session
     if not http_session:
@@ -830,6 +890,7 @@ async def search_tmdb(client, chat_id, query, post_type):
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
+# TMDB ডিটেইলস সংগ্রহ
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     global http_session
     if not http_session:
