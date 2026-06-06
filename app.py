@@ -4,6 +4,8 @@ import random
 import json
 import io
 import asyncio
+import re
+import xml.etree.ElementTree as ET
 import html # এইচটিএমএল ট্যাগ সুরক্ষিতভাবে পার্স করার জন্য
 import urllib.parse
 import aiohttp # সম্পূর্ণ এসিঙ্ক্রোনাস এপিআই হ্যান্ডেল করার জন্য
@@ -36,7 +38,7 @@ temp_codes = {}
 def home():
     return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
 
-# --- কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
+# --- প্রফেশনাল কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
 @web_app.route('/code/<code_id>')
 def view_code(code_id):
     code_data = None
@@ -265,7 +267,8 @@ def load_system_db():
                 return {
                     'owner_ads': config.get('owner_ads', []),
                     'owner_share': config.get('owner_share', 20),
-                    'user_ads': config.get('user_ads', {})
+                    'user_ads': config.get('user_ads', {}),
+                    'autopost_configs': config.get('autopost_configs', {})
                 }
         except Exception:
             pass
@@ -279,7 +282,8 @@ def load_system_db():
     return {
         'owner_ads': ['https://www.highrateprofit.com/default-owner-key'],
         'owner_share': 20, 
-        'user_ads': {}     
+        'user_ads': {},
+        'autopost_configs': {}
     }
 
 system_db = load_system_db()
@@ -292,7 +296,8 @@ def save_system_db():
                 {'$set': {
                     'owner_ads': system_db['owner_ads'],
                     'owner_share': system_db['owner_share'],
-                    'user_ads': system_db['user_ads']
+                    'user_ads': system_db['user_ads'],
+                    'autopost_configs': system_db.get('autopost_configs', {})
                 }},
                 upsert=True
             )
@@ -390,7 +395,7 @@ def generate_premium_caption(chat_id, quality=None, episode_name=None):
     return caption
 
 
-# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার (ক্যাপশন ও পার্স মোড ফিক্সড)
+# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার (HTML ক্যাপশন সম্বলিত)
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session:
@@ -575,6 +580,100 @@ async def owner_stats_handler(client, message):
                               f"📋 ওনারের একটিভ লিঙ্কসমূহ:\n{links_text}")
 
 
+# ==================== ৩-কম্যান্ড অটো-পোস্ট সেটআপ এরিয়া ====================
+
+@app.on_message(filters.command("set_website") & filters.private)
+async def set_user_website(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_website", "").strip()
+    if not text or not text.startswith("http"):
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে আপনার ওয়েবসাইটের লিঙ্ক দিন:\n`/set_website https://yourblog.com`")
+        return
+    
+    feed_url = f"{text.rstrip('/')}/feeds/posts/default"
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['website'] = text
+    system_db['autopost_configs'][str(chat_id)]['feed'] = feed_url
+    system_db['autopost_configs'][str(chat_id)]['last_post_id'] = None
+    save_system_db()
+    await message.reply_text(f"✅ **ওয়েবসাইট সেটআপ সম্পন্ন!**\n\n🌐 লিঙ্ক: `{text}`\n⚙️ ফিড: `{feed_url}`")
+
+@app.on_message(filters.command("set_tutorial") & filters.private)
+async def set_user_tutorial(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_tutorial", "").strip()
+    if not text or not text.startswith("http"):
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে আপনার ভিডিও বা পোস্ট টিউটোরিয়াল লিঙ্ক দিন:\n`/set_tutorial https://t.me/yourchannel/123`")
+        return
+        
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['tutorial'] = text
+    save_system_db()
+    await message.reply_text(f"✅ **ডাউনলোড টিউটোরিয়াল সেটআপ সম্পন্ন!**\n\n🎥 লিঙ্ক: `{text}`")
+
+@app.on_message(filters.command("set_channel") & filters.private)
+async def set_user_channel(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_channel", "").strip()
+    if not text:
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে আপনার প্রাইভেট বা পাবলিক চ্যানেল আইডি দিন:\n`/set_channel -100123456789`")
+        return
+        
+    if not (text.startswith("-100") or text.startswith("@")):
+        await message.reply_text("❌ **ভুল চ্যানেল আইডি!**\n\nচ্যানেল আইডি অবশ্যই `-100` দিয়ে শুরু হতে হবে অথবা পাবলিক হলে `@` দিয়ে শুরু হতে হবে।")
+        return
+        
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['channel'] = text
+    save_system_db()
+    await message.reply_text(f"✅ **চ্যানেল আইডি সেটআপ সম্পন্ন!**\n\n📢 আইডি: `{text}`\n\n⚠️ *গুরুত্বপূর্ণ: নিশ্চিত করুন যে বটটিকে আপনার এই চ্যানেলে পোস্ট করার পারমিশন সহ Admin এড করেছেন।*")
+
+@app.on_message(filters.command("my_setup") & filters.private)
+async def view_user_setup(client, message):
+    chat_id = message.chat.id
+    configs = system_db.get('autopost_configs', {}).get(str(chat_id), {})
+    
+    if not configs:
+        await message.reply_text("❌ আপনার কোনো অটো-পোস্ট সেটআপ পাওয়া যায়নি। শুরু করতে কম্যান্ডগুলো ব্যবহার করুন:\n\n"
+                                 "১. ওয়েবসাইট: `/set_website <লিঙ্ক>`\n"
+                                 "২. চ্যানেল আইডি: `/set_channel <আইডি>`\n"
+                                 "৩. টিউটোরিয়াল (ঐচ্ছিক): `/set_tutorial <লিঙ্ক>`")
+        return
+        
+    website = configs.get('website', 'Not Set ❌')
+    channel = configs.get('channel', 'Not Set ❌')
+    tutorial = configs.get('tutorial', 'Not Set ❌')
+    
+    await message.reply_text(f"⚙️ **আপনার অটো-পোস্ট কনফিগারেশন:**\n\n"
+                             f"🌐 **ওয়েবসাইট:** `{website}`\n"
+                             f"📢 **চ্যানেল আইডি:** `{channel}`\n"
+                             f"🎥 **টিউটোরিয়াল:** `{tutorial}`\n\n"
+                             f"💡 *সবগুলো সঠিকভাবে সেটআপ করা থাকলে ওয়েবসাইট পোস্টে অটো-পোস্টিং সচল হবে।*")
+
+@app.on_message(filters.command("del_setup") & filters.private)
+async def delete_user_setup(client, message):
+    chat_id = message.chat.id
+    if 'autopost_configs' in system_db and str(chat_id) in system_db['autopost_configs']:
+        del system_db['autopost_configs'][str(chat_id)]
+        save_system_db()
+        await message.reply_text("✅ আপনার অটো-পোস্ট কনফিগারেশন সম্পূর্ণরূপে ডাটাবেজ থেকে মুছে ফেলা হয়েছে।")
+    else:
+        await message.reply_text("❌ আপনার কোনো একটিভ কনফিগারেশন পাওয়া যায়নি।")
+
+
 # ==================== স্টার্ট ও বাটন হ্যান্ডলারস ====================
 
 @app.on_message(filters.command("start") & filters.private)
@@ -757,14 +856,13 @@ async def handle_all_messages(client, message):
             await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         return
 
-    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার (ডাইনামিক ক্যাপশনসহ ডেটাবেজে আপলোড) ---
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
         file_msg_id = ""
         if message.document or message.video:
             file_type = 'document' if message.document else 'video'
             file_id = message.document.file_id if message.document else message.video.file_id
             
-            # কোন স্তরের ফাইল তা নির্ধারণ করা ও সঠিক প্রিমিয়াম ক্যাপশন জেনারেট করা
             if state == 'waiting_for_480p':
                 quality_str = "480p (SD)"
             elif state == 'waiting_for_720p':
@@ -773,8 +871,6 @@ async def handle_all_messages(client, message):
                 quality_str = "1080p (FullHD)"
                 
             dynamic_caption = generate_premium_caption(chat_id, quality=quality_str)
-            
-            # ডাটাবেজে ফাইল আপলোড
             db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, dynamic_caption)
             if db_msg_id:
                 file_msg_id = f"msg_{db_msg_id}"
@@ -817,7 +913,6 @@ async def handle_all_messages(client, message):
             
         elif state == 'waiting_for_episodes':
             if message.document or message.video:
-                # ফাইল ডেটা সাময়িকভাবে ধরে রাখা (এপিসোডের নাম পাওয়ার পর ক্যাপশনসহ আপলোড হবে)
                 user_states[chat_id]['temp_file_id'] = message.document.file_id if message.document else message.video.file_id
                 user_states[chat_id]['temp_file_type'] = 'document' if message.document else 'video'
                 user_states[chat_id]['temp_message_id'] = message.id
@@ -831,15 +926,11 @@ async def handle_all_messages(client, message):
         elif state == 'waiting_for_ep_name' and message.text:
             ep_title = message.text.strip()
             
-            # সাময়িক মেমোরি থেকে ডেটা রিকভারি
             file_id = user_states[chat_id]['temp_file_id']
             file_type = user_states[chat_id]['temp_file_type']
             orig_msg_id = user_states[chat_id]['temp_message_id']
             
-            # প্রিমিয়াম ডাইনামিক ক্যাপশন জেনারেশন
             dynamic_caption = generate_premium_caption(chat_id, episode_name=ep_title)
-            
-            # ডাটাবেজে নতুন ডাইনামিক ক্যাপশন সহ ফাইল সেভ করা
             db_msg_id = await save_file_to_db_channel(chat_id, orig_msg_id, file_type, file_id, dynamic_caption)
             
             if db_msg_id:
@@ -1163,6 +1254,7 @@ async def generate_movie_html_output(client, chat_id):
     <div class="info-text" style="display: none;">
         <div>Rating: {data['rating']}</div>
         <div>Language: {data['lang']}</div>
+        <div>Genres: {data['genres']}</div>
     </div>
 
     <div class="info-card">
@@ -1436,6 +1528,7 @@ async def generate_series_html_output(client, chat_id):
     <div class="info-text" style="display: none;">
         <div>Rating: {data['rating']}</div>
         <div>Language: {data['lang']}</div>
+        <div>Genres: {data['genres']}</div>
     </div>
 
     <div class="info-card">
@@ -1510,36 +1603,153 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
     user_states[chat_id] = {}
 
 
-# মূল এক্সেকিউশন
+# ==================== ব্যাকগ্রাউন্ড স্ক্র্যাপার ও অটো-পোস্ট লজিক ====================
+
+def extract_info_from_blog(content):
+    if not content:
+        return {'rating': 'N/A', 'genres': 'Movie/Series', 'lang': 'N/A'}
+    
+    text = re.sub(r'<[^>]+>', ' ', content)
+    
+    # HTML মেটা ক্লাস এবং সাধারণ রিলিজ ফরম্যাট রিড করার জন্য রেগুলার এক্সপ্রেশন
+    rating_match = re.search(r'(?:Rating|IMDb Rating|IMDB):\s*([\d\./]+|N/A)', text, re.I)
+    lang_match = re.search(r'Language:\s*([^📅🎭⏱\n|]+)', text, re.I)
+    genres_match = re.search(r'Genres:\s*([^📅🎭⏱\n|]+)', text, re.I)
+    
+    return {
+        'rating': rating_match.group(1).strip() if rating_match else "N/A",
+        'lang': lang_match.group(1).strip() if lang_match else "N/A",
+        'genres': genres_match.group(1).strip() if genres_match else "Movie/Series"
+    }
+
+def extract_poster_from_blog(content):
+    if not content:
+        return None
+    img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.I)
+    if img_match:
+        return img_match.group(1)
+    return None
+
+async def monitor_feeds():
+    while True:
+        try:
+            configs = system_db.get('autopost_configs', {})
+            if not configs:
+                await asyncio.sleep(45)
+                continue
+                
+            headers = {"User-Agent": "Mozilla/5.0"}
+            async with aiohttp.ClientSession(headers=headers) as session:
+                for user_id, config in list(configs.items()):
+                    try:
+                        f_url = config.get("feed")
+                        l_id = config.get("last_post_id")
+                        target_chat = config.get("channel")
+                        tutorial = config.get("tutorial")
+                        
+                        if not f_url or not target_chat:
+                            continue
+
+                        async with session.get(f_url, timeout=15) as resp:
+                            if resp.status != 200: 
+                                continue
+                            xml_data = await resp.text()
+                            root = ET.fromstring(xml_data)
+                            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+                            entries = root.findall('atom:entry', ns)
+                            if not entries: 
+                                continue
+                            
+                            latest = entries[0]
+                            p_id = latest.find('atom:id', ns).text
+                            if p_id != l_id:
+                                # নতুন পোস্ট ডিটেক্ট করা হয়েছে
+                                raw_title = latest.find('atom:title', ns).text
+                                # এক্সট্রা পাইপ (|) বা ড্যাশ (-) ক্লিন করা
+                                title = raw_title.split('|')[0].split('-')[0].strip()
+                                link = latest.find('atom:link[@rel="alternate"]', ns).attrib['href']
+                                
+                                content_elem = latest.find('atom:content', ns)
+                                content = content_elem.text or "" if content_elem is not None else ""
+                                
+                                info = extract_info_from_blog(content)
+                                poster = extract_poster_from_blog(content)
+                                
+                                # আপনার রিকোয়েস্ট করা সুন্দর ও নিখুঁত পোস্ট ক্যাপশন লেআউট
+                                caption = (
+                                    f"🎬 <b>NEW UPDATE: {title}</b>\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                    f"⭐️ <b>Rating:</b> {info['rating']}\n"
+                                    f"🗣 <b>Language:</b> {info['lang']}\n"
+                                    f"🎭 <b>Genres:</b> {info['genres']}\n\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"📥 <b>ডাউনলোড করতে নিচের লিংকে ক্লিক করুন 👇</b>"
+                                )
+                                
+                                btns = [[InlineKeyboardButton("🔗 Watch & Download Now", url=link)]]
+                                if tutorial and tutorial != 'Not Set ❌' and tutorial.startswith("http"):
+                                    btns.append([InlineKeyboardButton("📽️ How to Download", url=tutorial)])
+
+                                try:
+                                    if poster: 
+                                        await app.send_photo(target_chat, poster, caption=caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
+                                    else: 
+                                        await app.send_message(target_chat, caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
+                                    
+                                    # ডাটাবেজ আপডেট
+                                    system_db['autopost_configs'][user_id]['last_post_id'] = p_id
+                                    save_system_db()
+                                except Exception as e:
+                                    print(f"Auto-post error to channel {target_chat} for user {user_id}: {e}")
+                    except Exception as e:
+                        print(f"Error checking feed of user {user_id}: {e}")
+                        continue
+        except Exception as e:
+            print(f"General monitor loop error: {e}")
+        await asyncio.sleep(45) # ৪৫ সেকেন্ড পরপর চেক করবে
+
+
+# ==================== মূল এক্সেকিউশন ====================
+
 if __name__ == '__main__':
+    # Flask Web Server রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
     
+    # পাইরোগ্রাম সচল করে অটো পিয়ার ক্যাশিং হ্যাক চালু করা
     async def main():
         global http_session
         print("Starting Pyrogram Bot Client...")
         await app.start()
         
+        # গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন সচল করা
         http_session = aiohttp.ClientSession()
         
+        # স্বয়ংক্রিয় পিয়ার রিজলভার হ্যাক ট্রিগার
         try:
             print("Resolving and caching Database Channel Peer...")
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
             async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
                 res = await resp.json()
             if res.get('ok'):
-                print(" Database Channel Peer resolved successfully!")
+                print(" Database Channel Peer resolved and cached successfully!")
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
                 await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
         except Exception as e:
             print(f"⚠️ Error resolving database channel peer: {e}")
             
+        # ব্যাকগ্রাউন্ডে অটো-পোস্ট মনিটর চালু করা
+        print("Starting Background Auto-Post Feed Monitor...")
+        asyncio.create_task(monitor_feeds())
+            
         print("Bot is successfully running and listening for requests...")
         await idle()
         
+        # সেশন বন্ধ করা হচ্ছে
         if http_session:
             await http_session.close()
         await app.stop()
 
+    # asyncio ইভেন্ট লুপের মাধ্যমে রান করা হচ্ছে
     asyncio.get_event_loop().run_until_complete(main())
