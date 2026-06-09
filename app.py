@@ -776,7 +776,7 @@ async def save_lang_and_proceed(client, chat_id, language):
             await client.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
 
 
-# ==================== মেসেজ প্রসেসিং এরিয়া ====================
+# ==================== Message Processing Area ====================
 
 @app.on_message(filters.private)
 async def handle_all_messages(client, message):
@@ -804,6 +804,7 @@ async def handle_all_messages(client, message):
     # --- ম্যানুয়াল পোস্ট কন্টেন্ট রিসিভার ---
     elif state == 'waiting_for_manual_title' and message.text:
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
+        user_states[chat_id]['movie_data']['cast'] = [] # ম্যানুয়াল পোস্টে কাস্ট খালি থাকবে
         user_states[chat_id]['is_manual'] = True
         user_states[chat_id]['step'] = 'waiting_for_manual_rating'
         await client.send_message(chat_id, "⭐ IMDb রেটিং লিখে পাঠান (উদা: 8.2/10):")
@@ -815,7 +816,6 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_genres' and message.text:
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
-        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
@@ -981,14 +981,15 @@ async def search_tmdb(client, chat_id, query, post_type):
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
-# TMDB ডিটেইলস সংগ্রহ
+# TMDB ডিটেইলস সংগ্রহ (কাস্ট ও ক্যারেক্টার প্রোফাইল ফেসিলিটি সহ)
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     global http_session
     if not http_session:
         return
         
     endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}"
+    # append_to_response=credits দিয়ে সিঙ্গেল এপিআই রিকোয়েস্টে কাস্টদের তথ্য এবং ছবি নিয়ে আসা হচ্ছে
+    url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}&append_to_response=credits"
     
     try:
         async with http_session.get(url, timeout=10) as resp:
@@ -1003,13 +1004,28 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         backdrop = f"https://image.tmdb.org/t/p/original{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
         plot = data.get('overview', 'No description available.')
 
+        # কাস্ট ও ক্যারেক্টার ডাটা পার্সিং (টপ ৬ জন ক্যারেক্টার নেওয়া হচ্ছে)
+        credits_data = data.get('credits', {})
+        raw_cast = credits_data.get('cast', [])
+        processed_cast = []
+        for actor in raw_cast[:6]:
+            profile_path = actor.get('profile_path')
+            # প্রোফাইল ফটো না থাকলে একটি জেনেরিক ইউজার আইকন ইমেজ সেট করা হবে
+            avatar_url = f"https://image.tmdb.org/t/p/w185{profile_path}" if profile_path else "https://img.icons8.com/color/150/user-male-circle--v1.png"
+            processed_cast.append({
+                'name': actor.get('name', 'Unknown'),
+                'character': actor.get('character', 'N/A'),
+                'image': avatar_url
+            })
+
         user_states[chat_id]['movie_data'] = {
             'title': f"{title} ({year})",
             'poster': poster,
             'backdrop': backdrop,
             'rating': rating,
             'genres': genres,
-            'plot': plot
+            'plot': plot,
+            'cast': processed_cast
         }
 
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
@@ -1022,7 +1038,30 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# ১. মুভি কোড জেনারেটর (উন্নত ডাবল-ক্লিক এনিমেশন সহ)
+# কাস্ট লিস্টের এইচটিএমএল ব্লক জেনারেটর ফাংশন
+def build_cast_html_section(cast_list):
+    if not cast_list:
+        return ""
+        
+    cast_members_html = ""
+    for actor in cast_list:
+        cast_members_html += f"""
+        <div class="cast-member">
+            <img class="cast-avatar" src="{actor['image']}" alt="{actor['name']}" loading="lazy"/>
+            <div class="cast-name" title="{actor['name']}">{actor['name']}</div>
+            <div class="cast-character" title="{actor['character']}">{actor['character']}</div>
+        </div>"""
+        
+    return f"""
+    <div class="cast-section">
+        <div class="cast-title">Cast & Characters</div>
+        <div class="cast-grid">
+            {cast_members_html}
+        </div>
+    </div>"""
+
+
+# ১. মুভি কোড জেনারেটর (উন্নত ডাবল-ক্লিক এনিমেশন ও ক্যারেক্টার স্লাইডার সহ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -1061,6 +1100,9 @@ async def generate_movie_html_output(client, chat_id):
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 1080p (FullHD)</span>
         </a>'''
+
+    # ডাইনামিক কাস্ট লিস্ট জেনারেট করা হচ্ছে
+    cast_section_html = build_cast_html_section(data.get('cast', []))
 
     html_code = f"""<!-- MOVIE POST START -->
 <style>
@@ -1146,6 +1188,63 @@ async def generate_movie_html_output(client, chat_id):
         color: #94a3b8;
         font-size: 15px;
     }}
+    
+    /* --- গোল ক্যারেক্টার ডিজাইন (Cast Section) --- */
+    .cast-section {{
+        margin: 25px 0;
+    }}
+    .cast-title {{
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #38bdf8;
+        padding-left: 12px;
+        margin-bottom: 16px;
+    }}
+    .cast-grid {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        justify-content: flex-start;
+    }}
+    .cast-member {{
+        text-align: center;
+        width: 100px;
+        flex-shrink: 0;
+    }}
+    .cast-avatar {{
+        width: 75px;
+        height: 75px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(56, 189, 248, 0.4);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+    .cast-avatar:hover {{
+        transform: scale(1.1) rotate(2deg);
+        border-color: #38bdf8;
+        box-shadow: 0 6px 15px rgba(56, 189, 248, 0.25);
+    }}
+    .cast-name {{
+        font-size: 11px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin-top: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+    .cast-character {{
+        font-size: 10px;
+        color: #64748b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+
     .guide-box {{
         background: rgba(30, 41, 59, 0.4);
         border: 1px solid rgba(56, 189, 248, 0.2);
@@ -1267,6 +1366,8 @@ async def generate_movie_html_output(client, chat_id):
         </div>
     </div>
 
+    {cast_section_html}
+
     <div class="synopsis-section">
         <div class="synopsis-title">Synopsis / Storyline</div>
         <div class="synopsis-text">{data['plot']}</div>
@@ -1346,6 +1447,9 @@ async def generate_series_html_output(client, chat_id):
             <span class="btn-sub-text">Episode Downloader</span>
             <span class="btn-label-text">{ep['name']}</span>
         </a>"""
+
+    # ডাইনামিক কাস্ট লিস্ট জেনারেট করা হচ্ছে
+    cast_section_html = build_cast_html_section(data.get('cast', []))
 
     html_code = f"""<!-- TV SHOW POST START -->
 <style>
@@ -1430,6 +1534,63 @@ async def generate_series_html_output(client, chat_id):
         color: #94a3b8;
         font-size: 15px;
     }}
+    
+    /* --- গোল ক্যারেক্টার ডিজাইন (Cast Section) --- */
+    .cast-section {{
+        margin: 25px 0;
+    }}
+    .cast-title {{
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #38bdf8;
+        padding-left: 12px;
+        margin-bottom: 16px;
+    }}
+    .cast-grid {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        justify-content: flex-start;
+    }}
+    .cast-member {{
+        text-align: center;
+        width: 100px;
+        flex-shrink: 0;
+    }}
+    .cast-avatar {{
+        width: 75px;
+        height: 75px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(56, 189, 248, 0.4);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+    .cast-avatar:hover {{
+        transform: scale(1.1) rotate(2deg);
+        border-color: #38bdf8;
+        box-shadow: 0 6px 15px rgba(56, 189, 248, 0.25);
+    }}
+    .cast-name {{
+        font-size: 11px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin-top: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+    .cast-character {{
+        font-size: 10px;
+        color: #64748b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+
     .guide-box {{
         background: rgba(30, 41, 59, 0.4);
         border: 1px solid rgba(56, 189, 248, 0.2);
@@ -1541,6 +1702,8 @@ async def generate_series_html_output(client, chat_id):
             <div class="info-item"><strong>Season:</strong> {season}</div>
         </div>
     </div>
+
+    {cast_section_html}
 
     <div class="synopsis-section">
         <div class="synopsis-title">Synopsis / Storyline</div>
