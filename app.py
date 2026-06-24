@@ -836,7 +836,7 @@ async def handle_all_messages(client, message):
     # --- ম্যানুয়াল পোস্ট কন্টেন্ট রিসিভার ---
     elif state == 'waiting_for_manual_title' and message.text:
         user_states[chat_id]['movie_data']['title'] = message.text.strip()
-        user_states[chat_id]['movie_data']['cast'] = [] # ম্যানুয়াল পোস্টে কাস্ট খালি থাকবে
+        user_states[chat_id]['movie_data']['screenshots'] = [] # ম্যানুয়াল স্ক্রিনশটের জন্য এম্পটি লিস্ট
         user_states[chat_id]['is_manual'] = True
         user_states[chat_id]['step'] = 'waiting_for_manual_rating'
         await client.send_message(chat_id, "⭐ IMDb রেটিং লিখে পাঠান (উদা: 8.2/10):")
@@ -879,14 +879,38 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_plot' and message.text:
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
-        
-        if post_type == 'movie':
-            user_states[chat_id]['step'] = 'waiting_for_480p'
-            await client.send_message(chat_id, "✅ মুভি তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
-        else:
-            user_states[chat_id]['step'] = 'waiting_for_season'
-            await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+        user_states[chat_id]['movie_data']['screenshots'] = []
+        user_states[chat_id]['step'] = 'waiting_for_manual_screenshots'
+        await client.send_message(chat_id, "📸 এবার মুভি/সিরিজের কিছু **স্ক্রিনশট (Landscape Screenshots)** সরাসরি ইমেজ হিসেবে পাঠান।\n\nআপনি একের পর এক একাধিক ইমেজ পাঠাতে পারেন।\n\n👉 কাজ শেষ হলে বা স্ক্রিনশট না দিতে চাইলে লিখুন:\n"
+                                           "সমাপ্ত করতে: `/done` টাইপ করুন\n"
+                                           "বাদ দিতে: `/skip` টাইপ করুন")
         return
+
+    # ম্যানুয়াল স্ক্রিনশট রিসিভার (লুপ ও অপশনাল)
+    elif state == 'waiting_for_manual_screenshots':
+        if message.photo:
+            await client.send_message(chat_id, "⏳ স্ক্রিনশট প্রসেস ও আপলোড হচ্ছে...")
+            photo_id = message.photo.file_id
+            screenshot_url = await upload_image_to_cloud(photo_id)
+            if screenshot_url:
+                user_states[chat_id]['movie_data']['screenshots'].append(screenshot_url)
+                await client.send_message(chat_id, f"✅ স্ক্রিনশট সফলভাবে যুক্ত হয়েছে! (মোট যুক্ত হয়েছে: {len(user_states[chat_id]['movie_data']['screenshots'])} টি)\n\nপরের স্ক্রিনশট ইমেজটি পাঠান, অথবা সমাপ্ত করতে `/done` এবং বাদ দিতে `/skip` টাইপ করুন।")
+            else:
+                await client.send_message(chat_id, "❌ স্ক্রিনশট আপলোড করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন বা অন্য ইমেজ পাঠান।")
+            return
+        elif message.text:
+            text_val = message.text.strip().lower()
+            if text_val in ['/done', '/skip']:
+                if post_type == 'movie':
+                    user_states[chat_id]['step'] = 'waiting_for_480p'
+                    await client.send_message(chat_id, "✅ স্ক্রিনশট ইনপুট সেভ করা হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+                else:
+                    user_states[chat_id]['step'] = 'waiting_for_season'
+                    await client.send_message(chat_id, "✅ স্ক্রিনশট ইনপুট সেভ করা হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+                return
+            else:
+                await client.send_message(chat_id, "⚠️ ভুল ইনপুট! অনুগ্রহ করে স্ক্রিনশটের জন্য একটি ছবি পাঠান অথবা সমাপ্ত করতে `/done` এবং বাদ দিতে `/skip` টাইপ করুন।")
+                return
 
     # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
     if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
@@ -1033,14 +1057,15 @@ async def resolve_imdb_to_tmdb(imdb_id):
         print(f"IMDb translation failed: {e}")
     return None, None
 
-# TMDB ডিটেইলস সংগ্রহ (কাস্ট ও ক্যারেক্টার প্রোফাইল ফেসিলিটি সহ)
+# TMDB ডিটেইলস সংগ্রহ (ক্যারেক্টারের বদলে অটোমেটিক ব্যাকড্রপ স্ক্রিনশট ফেচিং সহ)
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     global http_session
     if not http_session:
         return
         
     endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}&append_to_response=credits"
+    # কাস্টের বদলে সরাসরি TMDB থেকে অতিরিক্ত ইমেজ ডেটা আনা হচ্ছে
+    url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}&append_to_response=images"
     
     try:
         async with http_session.get(url, timeout=10) as resp:
@@ -1055,18 +1080,14 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         backdrop = f"https://image.tmdb.org/t/p/original{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
         plot = data.get('overview', 'No description available.')
 
-        # কাস্ট ও ক্যারেক্টার ডাটা পার্সিং (টপ ৬ জন ক্যারেক্টার নেওয়া হচ্ছে)
-        credits_data = data.get('credits', {})
-        raw_cast = credits_data.get('cast', [])
-        processed_cast = []
-        for actor in raw_cast[:6]:
-            profile_path = actor.get('profile_path')
-            avatar_url = f"https://image.tmdb.org/t/p/w185{profile_path}" if profile_path else "https://img.icons8.com/color/150/user-male-circle--v1.png"
-            processed_cast.append({
-                'name': actor.get('name', 'Unknown'),
-                'character': actor.get('character', 'N/A'),
-                'image': avatar_url
-            })
+        # অটোমেটিক স্ক্রিনশট ফিল্টারিং (ল্যান্ডস্কেপ ব্যাকড্রপস থেকে সেরা ৪টি ছবি নির্বাচন করা হচ্ছে)
+        images_data = data.get('images', {})
+        backdrops = images_data.get('backdrops', [])
+        processed_screenshots = []
+        for bg in backdrops[:4]: # সর্বোচ্চ ৪টি চমৎকার স্ক্রিনশট
+            file_path = bg.get('file_path')
+            if file_path:
+                processed_screenshots.append(f"https://image.tmdb.org/t/p/w780{file_path}")
 
         user_states[chat_id]['movie_data'] = {
             'title': f"{title} ({year})",
@@ -1075,7 +1096,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
             'rating': rating,
             'genres': genres,
             'plot': plot,
-            'cast': processed_cast
+            'screenshots': processed_screenshots
         }
 
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
@@ -1088,30 +1109,25 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# কাস্ট লিস্টের এইচটিএমএল ব্লক জেনারেটর ফাংশন
-def build_cast_html_section(cast_list):
-    if not cast_list:
+# স্ক্রিনশট সেকশনের জন্য রেসপনসিভ ল্যান্ডস্কেপ গ্রিড এইচটিএমএল জেনারেটর
+def build_screenshots_html_section(screenshots_list):
+    if not screenshots_list:
         return ""
         
-    cast_members_html = ""
-    for actor in cast_list:
-        cast_members_html += f"""
-        <div class="cast-member">
-            <img class="cast-avatar" src="{actor['image']}" alt="{actor['name']}" loading="lazy"/>
-            <div class="cast-name" title="{actor['name']}">{actor['name']}</div>
-            <div class="cast-character" title="{actor['character']}">{actor['character']}</div>
-        </div>"""
+    imgs_html = ""
+    for img in screenshots_list:
+        imgs_html += f'<img class="screenshot-img" src="{img}" alt="Movie Screenshot" loading="lazy"/>\n'
         
     return f"""
-    <div class="cast-section">
-        <div class="cast-title">Cast & Characters</div>
-        <div class="cast-grid">
-            {cast_members_html}
+    <div class="screenshots-section">
+        <div class="screenshots-title">📸 Screenshots Gallery</div>
+        <div class="screenshots-grid">
+            {imgs_html}
         </div>
     </div>"""
 
 
-# ১. মুভি কোড জেনারেটর (নিয়ন পালস এনিমেশন ও ডাবল ক্লিক ইফেক্ট সমৃদ্ধ)
+# ১. মুভি কোড জেনারেটর (নিয়ন পালস এনিমেশন ও স্ক্রিনশট গ্যালারি সমৃদ্ধ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -1163,7 +1179,8 @@ async def generate_movie_html_output(client, chat_id):
             </div>
         </a>'''
 
-    cast_section_html = build_cast_html_section(data.get('cast', []))
+    # স্ক্রিনশট সেকশন প্রিপারেশন
+    screenshots_html = build_screenshots_html_section(data.get('screenshots', []))
 
     html_code = f"""<!-- MOVIE POST START -->
 <style>
@@ -1250,11 +1267,11 @@ async def generate_movie_html_output(client, chat_id):
         font-size: 15px;
     }}
     
-    /* --- গোল ক্যারেক্টার ডিজাইন (Cast Section) --- */
-    .cast-section {{
+    /* --- স্ক্রিনশট গ্যালারি ডিজাইন --- */
+    .screenshots-section {{
         margin: 25px 0;
     }}
-    .cast-title {{
+    .screenshots-title {{
         color: #38bdf8;
         font-size: 18px;
         font-weight: 800;
@@ -1264,46 +1281,24 @@ async def generate_movie_html_output(client, chat_id):
         padding-left: 12px;
         margin-bottom: 16px;
     }}
-    .cast-grid {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        justify-content: flex-start;
+    .screenshots-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
     }}
-    .cast-member {{
-        text-align: center;
-        width: 100px;
-        flex-shrink: 0;
-    }}
-    .cast-avatar {{
-        width: 75px;
-        height: 75px;
-        border-radius: 50%;
+    .screenshot-img {{
+        width: 100%;
+        aspect-ratio: 16/9;
         object-fit: cover;
-        border: 2px solid rgba(56, 189, 248, 0.4);
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
     }}
-    .cast-avatar:hover {{
-        transform: scale(1.1) rotate(2deg);
+    .screenshot-img:hover {{
+        transform: scale(1.03);
         border-color: #38bdf8;
-        box-shadow: 0 6px 15px rgba(56, 189, 248, 0.25);
-    }}
-    .cast-name {{
-        font-size: 11px;
-        font-weight: 700;
-        color: #f1f5f9;
-        margin-top: 6px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-    .cast-character {{
-        font-size: 10px;
-        color: #64748b;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        box-shadow: 0 8px 25px rgba(56, 189, 248, 0.25);
     }}
 
     .guide-box {{
@@ -1450,7 +1445,7 @@ async def generate_movie_html_output(client, chat_id):
         </div>
     </div>
 
-    {cast_section_html}
+    {screenshots_html}
 
     <div class="synopsis-section">
         <div class="synopsis-title">Synopsis / Storyline</div>
@@ -1538,7 +1533,8 @@ async def generate_series_html_output(client, chat_id):
             <span class="btn-label-text">{ep['name']}</span>
         </a>"""
 
-    cast_section_html = build_cast_html_section(data.get('cast', []))
+    # স্ক্রিনশট সেকশন প্রিপারেশন
+    screenshots_html = build_screenshots_html_section(data.get('screenshots', []))
 
     html_code = f"""<!-- TV SHOW POST START -->
 <style>
@@ -1624,11 +1620,11 @@ async def generate_series_html_output(client, chat_id):
         font-size: 15px;
     }}
     
-    /* --- গোল ক্যারেক্টার ডিজাইন (Cast Section) --- */
-    .cast-section {{
+    /* --- স্ক্রিনশট গ্যালারি ডিজাইন --- */
+    .screenshots-section {{
         margin: 25px 0;
     }}
-    .cast-title {{
+    .screenshots-title {{
         color: #38bdf8;
         font-size: 18px;
         font-weight: 800;
@@ -1638,46 +1634,24 @@ async def generate_series_html_output(client, chat_id):
         padding-left: 12px;
         margin-bottom: 16px;
     }}
-    .cast-grid {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        justify-content: flex-start;
+    .screenshots-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
     }}
-    .cast-member {{
-        text-align: center;
-        width: 100px;
-        flex-shrink: 0;
-    }}
-    .cast-avatar {{
-        width: 75px;
-        height: 75px;
-        border-radius: 50%;
+    .screenshot-img {{
+        width: 100%;
+        aspect-ratio: 16/9;
         object-fit: cover;
-        border: 2px solid rgba(56, 189, 248, 0.4);
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
     }}
-    .cast-avatar:hover {{
-        transform: scale(1.1) rotate(2deg);
+    .screenshot-img:hover {{
+        transform: scale(1.03);
         border-color: #38bdf8;
-        box-shadow: 0 6px 15px rgba(56, 189, 248, 0.25);
-    }}
-    .cast-name {{
-        font-size: 11px;
-        font-weight: 700;
-        color: #f1f5f9;
-        margin-top: 6px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-    .cast-character {{
-        font-size: 10px;
-        color: #64748b;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        box-shadow: 0 8px 25px rgba(56, 189, 248, 0.25);
     }}
 
     .guide-box {{
@@ -1796,7 +1770,7 @@ async def generate_series_html_output(client, chat_id):
         </div>
     </div>
 
-    {cast_section_html}
+    {screenshots_html}
 
     <div class="synopsis-section">
         <div class="synopsis-title">Synopsis / Storyline</div>
