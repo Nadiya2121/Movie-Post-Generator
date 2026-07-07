@@ -26,7 +26,6 @@ DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023))
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-# Koyeb সাব-পাথ ডিফল্ট ফ্রেমওয়ার্ক (অ্যাডমিন কনফিগ ব্যাকআপ হিসেবে থাকবে)
 MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
 PREFIX = "/view/Movie-Post-Generator"
 
@@ -57,13 +56,13 @@ def load_settings():
         'revenue_share': 20,
         'download_timer': 5,
         'website_url': MAIN_WEBSITE_URL,
-        'update_channel_id': "-1003506219023"
+        'update_channel_id': "-1003506219023",
+        'admin_ids_str': str(OWNER_ID)
     }
     if db_mongo is not None:
         try:
             config = db_mongo['settings'].find_one({'_id': 'system_config'})
             if config: 
-                # ডিফল্ট ফিল্ডগুলো নিশ্চিত করা
                 for key, val in default_settings.items():
                     config.setdefault(key, val)
                 return config
@@ -89,12 +88,29 @@ def save_settings(settings):
 
 system_settings = load_settings()
 
+# কাস্টম ইউজার সেফগার্ড সহ ডাইনামিক ওয়েবসাইট লিঙ্ক প্রোটেকশন ফাংশন
 def get_website_url():
     settings = load_settings()
-    url = settings.get('website_url', MAIN_WEBSITE_URL).strip()
-    if not url.endswith('/'):
-        url += '/'
-    return url
+    url = settings.get('website_url', '').strip()
+    if not url:
+        url = MAIN_WEBSITE_URL
+    url = url.rstrip('/')
+    if url.endswith('/admin'):
+        url = url[:-6]
+    return url + '/'
+
+# মাল্টিপল অ্যাডমিন আইডি সংগ্রহের ফাংশন
+def get_admin_ids():
+    settings = load_settings()
+    admin_str = settings.get('admin_ids_str', '').strip()
+    admins = [OWNER_ID]
+    if admin_str:
+        for uid in admin_str.split(','):
+            try:
+                admins.append(int(uid.strip()))
+            except ValueError:
+                pass
+    return list(set(admins))
 
 # --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
 def load_movies_db():
@@ -116,7 +132,6 @@ def save_movie_to_db(movie_id, data):
     current_time = time.time()
     data['updated_at'] = current_time
 
-    # ১. আইডি চেক (এডিট ডুপ্লিকেট রোধ)
     existing_by_id_index = -1
     for i, m in enumerate(movies):
         if m.get('_id') == movie_id:
@@ -130,7 +145,6 @@ def save_movie_to_db(movie_id, data):
                 db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
             except Exception: pass
     else:
-        # ২. নতুন ফাইল মার্জিং চেক
         existing_by_title_index = -1
         for i, m in enumerate(movies):
             if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
@@ -178,16 +192,14 @@ def delete_movie_from_db(movie_id):
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
-# CORS হেডার যুক্ত করা
-@web_app.after_request
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
-    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
-    return response
+# ==================== পাবলিক ডাইনামিক মুভি পোর্টাল (হোমপেজ) ====================
 
-
-# ==================== পাবলিক ভিউ ও ডাউনলোড পেজ ====================
+@web_app.route('/')
+@web_app.route(f'{PREFIX}/')
+def home_portal():
+    movies = load_movies_db()
+    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) 
+    return render_template_string(PORTAL_HTML, movies=movies, prefix=PREFIX)
 
 @web_app.route('/movie/<movie_id>')
 @web_app.route(f'{PREFIX}/movie/<movie_id>')
@@ -286,11 +298,6 @@ def tmdb_search_endpoint():
 
 # ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
 
-@web_app.route('/')
-@web_app.route(f'{PREFIX}/')
-def home():
-    return "BD Movie Zone API & Bot Server is active!"
-
 @web_app.route('/admin/login', methods=['GET', 'POST'])
 @web_app.route(f'{PREFIX}/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -325,7 +332,8 @@ def admin_save_settings():
         'revenue_share': int(request.form.get('revenue_share', 20)),
         'download_timer': int(request.form.get('download_timer', 5)),
         'website_url': request.form.get('website_url', '').strip(),
-        'update_channel_id': request.form.get('update_channel_id', '').strip()
+        'update_channel_id': request.form.get('update_channel_id', '').strip(),
+        'admin_ids_str': request.form.get('admin_ids_str', '').strip()
     }
     save_settings(settings)
     global system_settings
@@ -362,7 +370,6 @@ def edit_movie(movie_id):
         
     return render_template_string(EDIT_HTML, movie=movie, prefix=PREFIX)
 
-# --- ডাইনামিক রিমোট আপডেট চ্যানেল পোস্টিং রুট ---
 @web_app.route('/admin/post-channel/<movie_id>')
 @web_app.route(f'{PREFIX}/admin/post-channel/<movie_id>')
 def post_to_channel(movie_id):
@@ -385,14 +392,16 @@ async def send_movie_to_channel_job(movie_id):
         return False
     
     settings = load_settings()
-    channel_id = settings.get('update_channel_id')
+    channel_id = settings.get('update_channel_id', '').strip()
     if not channel_id:
         return False
         
-    try:
-        channel_id = int(channel_id)
-    except ValueError:
-        return False
+    # ইউজারনেম নাকি সংখ্যাভিত্তিক আইডি তা যাচাই করে পাঠানো
+    if channel_id.startswith('-') or channel_id.isdigit():
+        try:
+            channel_id = int(channel_id)
+        except ValueError:
+            pass
         
     m_meta = movie['movie_data']
     web_link = f"{get_website_url()}movie/{movie_id}"
@@ -434,16 +443,11 @@ def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(f"{PREFIX}/admin/login")
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port)
-
 
 # ==================== পাইগ্রাম টেলিগ্রাম বট ও অটো-পার্স লজিক ====================
 
 app = Client("movie_post_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# উন্নত নাম ক্লিনার ও বছর ডিটেকটর
 def clean_movie_filename(filename):
     name, _ = os.path.splitext(filename)
     
@@ -509,7 +513,6 @@ async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক ডিকোড ও ডেলিভারি
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -523,10 +526,11 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
-    # অ্যাডমিন প্যানেলে সেট করা কাস্টম ওয়েবসাইট লিঙ্ক ব্যবহার হচ্ছে
     live_site_url = get_website_url()
     admin_btn = []
-    if chat_id == OWNER_ID:
+    
+    # অ্যাডমিন আইডি লিষ্টিং ভেরিফিকেশন
+    if chat_id in get_admin_ids():
         admin_btn = [
             [InlineKeyboardButton("⚙️ অ্যাডমিন কন্ট্রোল প্যানেল (Login)", url=live_site_url + "admin")],
             [InlineKeyboardButton("🌐 আমার লাইভ মুভি সাইট", url=live_site_url)]
@@ -550,8 +554,8 @@ async def handle_start(client, message):
 async def auto_file_poster_handler(client, message):
     chat_id = message.chat.id
     
-    if chat_id != OWNER_ID:
-        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক এই ফিচারের সাহায্যে ফাইল ডাইরেক্ট পাবলিশ করতে পারবেন।")
+    if chat_id not in get_admin_ids():
+        await message.reply_text("❌ দুঃখিত! আপনি বটের অনুমোদিত অ্যাডমিন তালিকায় নেই।")
         return
 
     filename = message.document.file_name if message.document else message.video.file_name
@@ -652,6 +656,7 @@ async def auto_file_poster_handler(client, message):
         f"💡 একই মুভির ভিন্ন কোয়ালিটি লিংক এড করতে চাইলে শুধু ফাইলটি ফরোয়ার্ড করলেই হবে, ডাটা অটোমেটিক মার্জ হয়ে যাবে।"
     )
     
+    # এখানে সরাসরি নির্দিষ্ট মুভির পাবলিক পেজ `/movie/id` দেওয়া হয়েছে
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🛠️ ল্যাঙ্গুয়েজ ট্যাগ বসান (অ্যাডমিন প্যানেল)", url=live_site_url + "admin")],
         [InlineKeyboardButton("🌐 সাইটে পোস্টটি দেখুন", url=live_site_url + "movie/" + m_id_unique)]
@@ -667,7 +672,7 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception: pass
 
 
-# ==================== এডমিন প্যানেল HTML টেমপ্লেটস ====================
+# ==================== এডমিন প্যানেল ও ওয়েবসাইট টেমপ্লেটসমূহ ====================
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -789,7 +794,6 @@ DASHBOARD_HTML = """
         </div>
         {% endif %}
 
-        <!-- অ্যাডমিন কাস্টম সেটিংস কন্ট্রোল প্যানেল -->
         <div class="card p-3 mb-4 shadow">
             <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Configuration Panel</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
@@ -799,8 +803,14 @@ DASHBOARD_HTML = """
                 </div>
 
                 <div class="mb-3">
+                    <label class="form-label text-muted small">👥 কন্ট্রোলিং অ্যাডমিন আইডি সমূহ (কমা দিয়ে লিখুন):</label>
+                    <input type="text" name="admin_ids_str" class="form-control" value="{{settings.admin_ids_str}}" placeholder="উদা: 8297458824, 12345678" required>
+                    <small class="text-muted small">এখানে যে টেলিগ্রাম ইউজার আইডিগুলো কমা দিয়ে দেবেন তারা এই বটের এডমিন অ্যাক্সেস পাবেন।</small>
+                </div>
+
+                <div class="mb-3">
                     <label class="form-label text-muted small">📢 টেলিগ্রাম আপডেট চ্যানেল আইডি (Update Channel ID):</label>
-                    <input type="text" name="update_channel_id" class="form-control" value="{{settings.update_channel_id}}" placeholder="উদা: -100xxxxxxxxxx" required>
+                    <input type="text" name="update_channel_id" class="form-control" value="{{settings.update_channel_id}}" placeholder="উদা: -100xxxxxxxxxx বা @MyChannel" required>
                 </div>
 
                 <div class="mb-3">
@@ -824,7 +834,6 @@ DASHBOARD_HTML = """
             <input type="text" id="searchBox" class="form-control py-3 px-4" placeholder="🔍 সার্চ মুভি বা সিরিজ...">
         </div>
 
-        <!-- লাইভ কার্ড লিস্ট -->
         <div id="movieCardList">
             {% for m in movies %}
             <div class="movie-card-row shadow-sm">
@@ -1026,6 +1035,74 @@ EDIT_HTML = """
 """
 
 
+# ==================== পাবলিক ডাইনামিক মুভি পোর্টাল (হোমপেজ থিম) ====================
+
+PORTAL_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BD Movie Zone - Premium Streaming & Download Directory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #06070d; color: #f1f5f9; font-family: 'Plus Jakarta Sans', sans-serif; padding-top: 30px; }
+        .site-brand { font-size: 24px; font-weight: 800; color: #38bdf8; text-decoration: none !important; letter-spacing: 0.5px; }
+        .hero-section { background: radial-gradient(circle, rgba(15,17,26,0.6) 0%, rgba(6,7,13,1) 100%); padding: 50px 0; text-align: center; }
+        .hero-title { font-size: 34px; font-weight: 800; color: #fff; margin-bottom: 12px; }
+        .movie-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 18px; margin-top: 30px; }
+        .movie-card {
+            background: #0f111a;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .movie-card:hover { transform: translateY(-5px); border-color: #38bdf8; }
+        .card-poster { width: 100%; height: 230px; object-fit: cover; }
+        .card-details { padding: 12px; }
+        .card-title { font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+        .card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #94a3b8; }
+        .lang-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="container mb-4 d-flex justify-content-between align-items-center">
+        <a href="{{prefix}}/" class="site-brand">🎬 BD MOVIE ZONE</a>
+    </div>
+
+    <div class="hero-section">
+        <div class="container">
+            <h1 class="hero-title">Unlimited Movies &amp; Series</h1>
+            <p class="text-muted small">একদম বিজ্ঞাপনমুক্ত হাই-স্পিড আল্ট্রা ফাস্ট ফাইল ডাউনলোড সিস্টেম!</p>
+        </div>
+    </div>
+
+    <div class="container mb-5">
+        <div class="movie-grid">
+            {% for m in movies %}
+            <div class="movie-card shadow-sm" onclick="location.href='{{prefix}}/movie/{{m._id}}'">
+                <img src="{{m.movie_data.poster}}" class="card-poster" alt="Poster">
+                <div class="card-details">
+                    <div class="card-title">{{m.movie_data.title}}</div>
+                    <div class="card-meta">
+                        <span class="lang-badge">{{m.movie_data.lang}}</span>
+                        <span>⭐ {{m.movie_data.rating}}</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+</body>
+</html>
+"""
+
+
 # ==================== পাবলিক রেসপন্সিভ ডাউনলোড পেজ HTML ====================
 
 MOVIE_DETAIL_HTML = """
@@ -1106,7 +1183,6 @@ MOVIE_DETAIL_HTML = """
             box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
             color: #000;
         }
-        /* ফুলস্ক্রিন ব্লার প্রগ্রেস মডাল */
         .timer-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -1145,7 +1221,7 @@ MOVIE_DETAIL_HTML = """
             stroke: #38bdf8;
             stroke-width: 6;
             stroke-linecap: round;
-            stroke-dasharray: 283; /* 2 * PI * r = 2 * 3.1415 * 45 */
+            stroke-dasharray: 283; 
             stroke-dashoffset: 0;
             transition: stroke-dashoffset 1s linear;
         }
@@ -1260,7 +1336,6 @@ MOVIE_DETAIL_HTML = """
             let circleBox = document.getElementById('timerCircleBox');
             let header = document.getElementById('overlayHeader');
 
-            // রিসেট মডাল
             overlay.classList.add('active');
             circleBox.style.display = 'block';
             header.style.display = 'block';
@@ -1268,7 +1343,7 @@ MOVIE_DETAIL_HTML = """
             timerText.innerText = timerDuration;
             timerBar.style.strokeDashoffset = 0;
 
-            const totalDash = 283; // 2 * PI * 45
+            const totalDash = 283; 
             let timeLeft = timerDuration;
 
             let interval = setInterval(() => {
@@ -1282,14 +1357,11 @@ MOVIE_DETAIL_HTML = """
                     circleBox.style.display = 'none';
                     header.style.display = 'none';
                     
-                    // বটের সরাসরি লিঙ্ক তৈরি
                     let tgLink = `https://t.me/${botUsername}?start=${fileKey}`;
                     
-                    // বাটন আপডেট
                     finalBtn.href = tgLink;
                     finalBtn.style.display = 'block';
                     
-                    // উপার্জন বাড়াতে কাস্টম ট্রিক: শর্টলিংক থাকলে নতুন উইন্ডোতে শর্টলিংক খুলবে, একই সাথে টেলিগ্রাম লিঙ্ক ট্রিপ হবে
                     finalBtn.onclick = function(e) {
                         if (shortlinks.length > 0) {
                             let randomLink = shortlinks[Math.floor(Math.random() * shortlinks.length)];
