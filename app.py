@@ -563,7 +563,7 @@ def clean_movie_filename(filename):
         r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
         r'\bdual[- ]?audio\b', r'\bmulti[- ]?audio\b', r'\benglish\b', r'\bhindi\b', r'\bbangla\b', r'\bbengali\b', r'\btamil\b', r'\btelugu\b', r'\bmalayalam\b', r'\bkannada\b',
         r'\bhin\b', r'\beng\b', r'\bben\b', r'\besub\b', r'\bsub\b', r'\bsubtitles\b', r'\bhevc\b', r'\bx264\b', r'\bx265\b', r'\bh264\b', r'\bh265\b', r'\b10bit\b', r'\baac\b',
-        r'\bdd5\b', r'\bac3\b', r'\mp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
+        r'\bdd5\b', r'\bac3\b', r'\bmp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
     ]
     
     earliest_idx = len(name)
@@ -713,7 +713,7 @@ async def auto_file_poster_handler(client, message):
     authorized_admins = [OWNER_ID] + active_settings.get('admin_ids', [])
     
     if chat_id not in authorized_admins:
-        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক বা অনুমোদিত এডমিনরা ফাইল ডাইরেক্ট পাবলিশ করতে পারবেন।")
+        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক বা অনুমোদিত এডমিনরা ফাইল ডাইরেক্ট ফাইল পাবলিশ করতে পারবেন।")
         return
 
     filename = message.document.file_name if message.document else message.video.file_name
@@ -738,7 +738,7 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                if not results and release_year:
+                if not query_res and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
                         if fb_resp.status == 200:
@@ -1157,7 +1157,7 @@ EDIT_HTML = """
             resultContainer.style.display = "flex";
 
             let isUrl = input.includes("themoviedb.org");
-            let isOnlyNumber = /^\d+$/.test(input);
+            let isOnlyNumber = /^[0-9]+$/.test(input); // Syntax warning resolved by replacing \d with [0-9]
 
             if (isUrl || isOnlyNumber) {
                 resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
@@ -1856,14 +1856,12 @@ DOWNLOAD_HTML = """
             var adLink = "{{direct_link}}";
             var tgLink = "{{tg_bot_link}}";
             
-            // যদি এডমিন প্যানেলে কাস্টম ডিরেক্ট লিংক সেট করা থাকে
             if (adLink && adLink !== tgLink) {
                 window.open(adLink, "_blank");
                 setTimeout(() => {
                     window.location.href = tgLink;
-                }, 1000); // ১ সেকেন্ড বিলম্ব ব্রাউজারকে পপআপ নিশ্চিতভাবে লোড করতে সাহায্য করবে
+                }, 1000); 
             } else {
-                // যদি কোনো ডিরেক্ট লিংক না থাকে তবে সরাসরি বটের লিংকে মেইন ট্যাব নিয়ে যাবে
                 window.location.href = tgLink;
             }
         }
