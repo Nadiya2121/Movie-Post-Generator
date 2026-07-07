@@ -22,11 +22,17 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
+
+OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/11047054') 
+REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
+IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70a') 
+
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-# ইউজারের মেইন ওয়েবসাইটের লিঙ্ক
-MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/"
+# Koyeb সাব-পাথ ফ্রেমওয়ার্ক ডিফাইন
+MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
+PREFIX = "/view/Movie-Post-Generator"
 
 http_session = None
 web_app = Flask(__name__)
@@ -64,49 +70,18 @@ def load_movies_db():
     return []
 
 def save_movie_to_db(movie_id, data):
-    """মুভি সংরক্ষণের সময় একই টাইটেল থাকলে লিংক অটো-মার্জ করবে"""
-    movies = load_movies_db()
-    existing_movie = None
+    data['_id'] = movie_id
+    if db_mongo is not None:
+        try:
+            db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
+            return
+        except Exception:
+            pass
     
-    # টাইটেল চেক করে আগের পোস্ট আছে কি না চেক করুন
-    for m in movies:
-        if m['movie_data']['title'] == data['movie_data']['title']:
-            existing_movie = m
-            break
-            
-    if existing_movie:
-        # আগের মুভি পাওয়া গেছে, এখন নতুন ডাউনলোড কোয়ালিটি লিংকগুলো মার্জ করুন
-        if data['type'] == 'movie':
-            for quality, link in data['dl_links'].items():
-                if link:  # কেবল নতুন পাঠানো ভ্যালিড লিংকটি রিপ্লেস বা এড হবে
-                    existing_movie['dl_links'][quality] = link
-        else: # ওয়েব সিরিজের ক্ষেত্রে নতুন এপিসোড এপেন্ড হবে
-            existing_ep_names = [ep['name'] for ep in existing_movie['episodes']]
-            for ep in data['episodes']:
-                if ep['name'] not in existing_ep_names:
-                    existing_movie['episodes'].append(ep)
-                    
-        # ডাটাবেজ আপডেট
-        if db_mongo is not None:
-            try:
-                db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie})
-                return
-            except Exception:
-                pass
-        
-        movies = [m for m in movies if m.get('_id') != existing_movie['_id']]
-        movies.append(existing_movie)
-    else:
-        # একদম নতুন পোস্ট
-        data['_id'] = movie_id
-        if db_mongo is not None:
-            try:
-                db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-                return
-            except Exception:
-                pass
-        movies.append(data)
-        
+    # JSON Fallback
+    movies = load_movies_db()
+    movies = [m for m in movies if m.get('_id') != movie_id]
+    movies.append(data)
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
@@ -122,7 +97,7 @@ def delete_movie_from_db(movie_id):
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
-# CORS হেডার যুক্ত করা (ব্লগার ডোমেইন থেকে রিকোয়েস্ট অ্যালাও করার জন্য)
+# CORS হেডার যুক্ত করা
 @web_app.after_request
 def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
@@ -130,14 +105,16 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     return response
 
-# ==================== এপিআই এন্ডপয়েন্ট (API Endpoints) ====================
+# ==================== এপিআই এন্ডপয়েন্ট (API Endpoints - Dynamic Prefix) ====================
 
 @web_app.route('/api/movies', methods=['GET'])
+@web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
 def get_all_movies_api():
     movies = load_movies_db()
     return jsonify(movies)
 
 @web_app.route('/api/settings', methods=['GET'])
+@web_app.route(f'{PREFIX}/api/settings', methods=['GET'])
 def get_settings_api():
     settings = load_settings()
     return jsonify(settings)
@@ -171,6 +148,7 @@ def save_settings(settings):
 system_settings = load_settings()
 
 @web_app.route('/api/tmdb-fetch', methods=['POST'])
+@web_app.route(f'{PREFIX}/api/tmdb-fetch', methods=['POST'])
 def tmdb_fetch_api():
     if not session.get('admin_logged_in'):
         return jsonify({"error": "Unauthorized"}), 401
@@ -215,30 +193,38 @@ def tmdb_fetch_api():
     })
 
 
-# ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
+# ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ (Multi-Path Compatibility) ====================
+
+@web_app.route('/')
+@web_app.route(f'{PREFIX}/')
+def home():
+    return "BD Movie Zone API & Bot Server is active!"
 
 @web_app.route('/admin/login', methods=['GET', 'POST'])
+@web_app.route(f'{PREFIX}/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         if request.form.get('password') == ADMIN_PASSWORD:
             session['admin_logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
+            return redirect(f"{PREFIX}/admin")
         else:
             return render_template_string(LOGIN_HTML, error="ভুল পাসওয়ার্ড! আবার ট্রাই করুন।")
     return render_template_string(LOGIN_HTML)
 
 @web_app.route('/admin')
+@web_app.route(f'{PREFIX}/admin')
 def admin_dashboard():
     if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
+        return redirect(f"{PREFIX}/admin/login")
     movies = load_movies_db()
     settings = load_settings()
     return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings)
 
 @web_app.route('/admin/save-settings', methods=['POST'])
+@web_app.route(f'{PREFIX}/admin/save-settings', methods=['POST'])
 def admin_save_settings():
     if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
+        return redirect(f"{PREFIX}/admin/login")
     links_raw = request.form.get('direct_links', '')
     links_list = [l.strip() for l in links_raw.split('\n') if l.strip().startswith('http')]
     settings = {
@@ -248,12 +234,13 @@ def admin_save_settings():
     save_settings(settings)
     global system_settings
     system_settings = settings
-    return redirect(url_for('admin_dashboard'))
+    return redirect(f"{PREFIX}/admin")
 
 @web_app.route('/admin/edit/<movie_id>', methods=['GET', 'POST'])
+@web_app.route(f'{PREFIX}/admin/edit/<movie_id>', methods=['GET', 'POST'])
 def edit_movie(movie_id):
     if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
+        return redirect(f"{PREFIX}/admin/login")
         
     movies = load_movies_db()
     movie = next((m for m in movies if m.get('_id') == movie_id), None)
@@ -275,21 +262,23 @@ def edit_movie(movie_id):
             movie['season'] = request.form.get('season')
             
         save_movie_to_db(movie_id, movie)
-        return redirect(url_for('admin_dashboard'))
+        return redirect(f"{PREFIX}/admin")
         
     return render_template_string(EDIT_HTML, movie=movie)
 
 @web_app.route('/admin/delete/<movie_id>')
+@web_app.route(f'{PREFIX}/admin/delete/<movie_id>')
 def delete_movie(movie_id):
     if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
+        return redirect(f"{PREFIX}/admin/login")
     delete_movie_from_db(movie_id)
-    return redirect(url_for('admin_dashboard'))
+    return redirect(f"{PREFIX}/admin")
 
 @web_app.route('/admin/logout')
+@web_app.route(f'{PREFIX}/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
-    return redirect(url_for('admin_login'))
+    return redirect(f"{PREFIX}/admin/login")
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -336,6 +325,22 @@ def detect_file_quality(filename):
     elif "480" in fn_lower: return "480p"
     return "720p"  # ডিফল্ট 720p
 
+# ফাইলটি ডাটাবেজ চ্যানেলে সংরক্ষণ করার হেল্পার ফাংশন
+async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+    global http_session
+    if not http_session: return None
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+        payload = {"chat_id": DATABASE_CHANNEL_ID, "caption": caption, "parse_mode": "HTML"}
+        if file_type == 'document': payload["document"] = file_id
+        else: payload["video"] = file_id
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
+        if res.get('ok'): return res['result']['message_id']
+    except Exception as e:
+         print(f"Forward to DB failed: {e}")
+    return None
+
 @app.on_message(filters.command("start") & filters.private)
 async def handle_start(client, message):
     chat_id = message.chat.id
@@ -381,7 +386,7 @@ async def handle_start(client, message):
 async def auto_file_poster_handler(client, message):
     chat_id = message.chat.id
     
-    # শুধুমাত্র ওনার ফাইল ফরোয়ার্ড করলেই পোস্ট হবে (অন্যান্য ইউজারের ক্ষেত্রে সিকিউর লক)
+    # শুধুমাত্র ওনার ফাইল ফরোয়ার্ড করলেই পোস্ট হবে
     if chat_id != OWNER_ID:
         await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক এই ফিচারের সাহায্যে ফাইল ডাইরেক্ট পাবলিশ করতে পারবেন।")
         return
@@ -658,7 +663,7 @@ EDIT_HTML = """
                     <input type="text" name="rating" id="formRating" class="form-control bg-dark text-white" value="{{movie.movie_data.rating}}">
                 </div>
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">জনরা (Genres):</label>
+                    <label class="form-label">জনরা:</label>
                     <input type="text" name="genres" id="formGenres" class="form-control bg-dark text-white" value="{{movie.movie_data.genres}}">
                 </div>
             </div>
