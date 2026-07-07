@@ -340,7 +340,6 @@ def admin_save_settings():
         return redirect(f"{PREFIX}/admin/login")
         
     links_raw = request.form.get('direct_links', '')
-    # রেগুলার এক্সপ্রেশন ব্যবহার করে সঠিকভাবে লাইন ব্রেক স্প্লিটিং (ক্যারিজ রিটার্ন বাতিলেক নিশ্চিতকরণ)
     links_list = [l.strip() for l in re.split(r'[\r\n]+', links_raw) if l.strip().startswith('http')]
     
     admin_raw = request.form.get('admin_ids', '')
@@ -397,7 +396,6 @@ def send_to_channel(movie_id):
     if len(plot) > 350:
         plot = plot[:347] + "..."
 
-    # এভেলেবল কোয়ালিটি তালিকা তৈরি
     qualities = []
     links = movie.get('dl_links', {})
     if links.get('480p'): qualities.append("480p")
@@ -426,25 +424,42 @@ def send_to_channel(movie_id):
         err_desc = res.get('description', 'Unknown API Error')
         return f"Failed to send post. Telegram Error: {err_desc}", 500
 
-# --- নতুন ও আকর্ষণীয় ডাউনলোড ল্যান্ডিং পেজ রাউট ---
+# ==================== নতুন কোয়ালিটি সিলেকশন হাব ও ডাউনলোড মেকানিজম ====================
+
+# ১. ডাউনলোড মেইন হাব (এখানে সমস্ত এভেলেবল বাটন এবং সিরিজের সিজন-এপিসোড ড্রপডাউন শো করবে)
+@web_app.route('/download/<movie_id>')
+@web_app.route(f'{PREFIX}/download/<movie_id>')
+def movie_download_hub(movie_id):
+    movies = load_movies_db()
+    movie = next((m for m in movies if m.get('_id') == movie_id), None)
+    if not movie:
+        return "Content not found on server.", 404
+        
+    return render_template_string(HUB_HTML, movie=movie, prefix=PREFIX)
+
+# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (এখানে ক্লিক করার পর টাইমার চলবে)
 @web_app.route('/download/<movie_id>/<quality>')
 @web_app.route(f'{PREFIX}/download/<movie_id>/<quality>')
 def movie_download_landing(movie_id, quality):
     movies = load_movies_db()
     movie = next((m for m in movies if m.get('_id') == movie_id), None)
     if not movie:
-        return "Requested movie or episode not found.", 404
+        return "Requested content not found.", 404
         
-    settings = load_settings()
+    # ইন-মেমোরি গ্লোবাল ভেরিয়েবল থেকে সেটিংস রিড (লিংক ডুপ্লিকেট এবং কোয়েব রিসেট বাগ ফিক্সড)
+    global system_settings
+    settings = system_settings if system_settings else load_settings()
+    
     direct_links = settings.get('direct_links', [])
     selected_direct_link = random.choice(direct_links) if direct_links else ""
     
     file_key = movie.get('dl_links', {}).get(quality)
     if not file_key:
-        return f"Sorry, {quality} file is currently unavailable for this movie.", 404
+        return f"Sorry, {quality} file is currently unavailable.", 404
         
     tg_bot_link = f"https://t.me/{BOT_USERNAME}?start={file_key}"
     
+    # প্যানেলে কোনো ডিরেক্ট লিংক না থাকলে সরাসরি বটে নিয়ে যাবে
     if not selected_direct_link:
         selected_direct_link = tg_bot_link
 
@@ -708,7 +723,8 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                if not Math and release_year:
+                # mp3 typo ফিক্সড রেগুলার এক্সপ্রেশন
+                if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
                         if fb_resp.status == 200:
@@ -961,7 +977,7 @@ DASHBOARD_HTML = """
 
                 <div class="mb-3">
                     <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ / Popunder Ads (প্রতি লাইনে একটি লিংক):</label>
-                    <textarea name="direct_links" class="form-control" rows="2" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
+                    <textarea name="direct_links" class="form-control" rows="3" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
                     <small class="text-muted small">ডাউনলোডের সময় ইউজার এই ডিরেক্ট লিংকগুলোর মধ্য দিয়ে যাবে (স্বয়ংক্রিয় রোটেশন হবে)।</small>
                 </div>
                 
@@ -1145,7 +1161,372 @@ EDIT_HTML = """
 </html>
 """
 
-# --- নতুন আধুনিক ও আকর্ষণীয় গ্লাস মরফিজম ডাউনলোড ল্যান্ডিং পেজ টেমপ্লেট ---
+# ==================== নতুন কোয়ালিটি হাব টেমপ্লেট (HUB_HTML) ====================
+# এটি মূলত /download/[MOVIE_ID] লিংকে যাওয়ার পর সম্পূর্ণ ও চমৎকার বাটন সিলেকশন প্রদর্শন করবে।
+
+HUB_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download - {{movie.movie_data.title}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: radial-gradient(circle at top, #0f1526 0%, #03050a 100%);
+            color: #fff;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        .backdrop-blur {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('{{movie.movie_data.backdrop}}');
+            background-size: cover;
+            background-position: center;
+            filter: blur(50px) brightness(0.2);
+            z-index: -1;
+        }
+
+        .movie-hub-card {
+            background: rgba(13, 19, 33, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            width: 100%;
+            max-width: 580px;
+            padding: 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            text-align: center;
+        }
+
+        .movie-poster {
+            width: 130px;
+            height: 185px;
+            border-radius: 16px;
+            object-fit: cover;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            margin-bottom: 20px;
+        }
+
+        .movie-title {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 12px;
+            line-height: 1.3;
+        }
+
+        .meta-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 25px;
+        }
+
+        .meta-badge {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 5px 12px;
+            border-radius: 30px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+
+        .meta-rating {
+            background: rgba(251, 191, 36, 0.1);
+            color: #fbbf24;
+            border-color: rgba(255, 191, 36, 0.2);
+        }
+
+        .section-divider {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #64748b;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            font-weight: 800;
+        }
+        .section-divider::before, .section-divider::after {
+            content: '';
+            height: 1px;
+            width: 40px;
+            background: rgba(255,255,255,0.08);
+        }
+
+        /* --- প্রফেশনাল ডাউনলোড বাটন গ্রিড --- */
+        .download-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .download-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 12px 18px;
+            transition: all 0.3s ease;
+        }
+
+        .download-row:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .quality-info {
+            text-align: left;
+        }
+
+        .quality-label {
+            font-size: 14px;
+            font-weight: 800;
+            color: #cbd5e1;
+        }
+
+        .size-label {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        /* বাটন স্টাইলিং */
+        .premium-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            border-radius: 50px;
+            font-size: 11px;
+            font-weight: 800;
+            text-decoration: none !important;
+            color: #fff !important;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: none;
+            cursor: pointer;
+        }
+
+        .premium-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .btn-sunset {
+            background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.25);
+        }
+        .btn-sunset:hover { box-shadow: 0 6px 20px rgba(245, 158, 11, 0.45); }
+
+        .btn-electric {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #030712 !important;
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.25);
+        }
+        .btn-electric:hover { box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45); }
+
+        .btn-royal {
+            background: linear-gradient(135deg, #b156ff 0%, #7200d6 100%);
+            box-shadow: 0 4px 15px rgba(177, 86, 255, 0.25);
+        }
+        .btn-royal:hover { box-shadow: 0 6px 20px rgba(177, 86, 255, 0.45); }
+
+        /* --- সিরিজ সিজন-এপিসোর্ড সিস্টেম --- */
+        .season-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 6px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .season-tab-btn {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .season-tab-btn.active {
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #030712;
+            box-shadow: 0 4px 12px rgba(0, 242, 254, 0.25);
+        }
+
+        .episode-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .episode-card.open {
+            border-color: rgba(0, 242, 254, 0.2);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .episode-bar {
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 14px;
+            color: #cbd5e1;
+        }
+
+        .episode-icon {
+            font-size: 11px;
+            color: #94a3b8;
+            transition: transform 0.3s ease;
+        }
+
+        .episode-content-box {
+            display: none;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.25);
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="backdrop-blur"></div>
+
+    <div class="movie-hub-card shadow-lg">
+        
+        <img src="{{movie.movie_data.poster}}" alt="Poster" class="movie-poster">
+        <div class="movie-title">{{movie.movie_data.title}}</div>
+        
+        <div class="meta-tags">
+            <span class="meta-badge meta-rating">⭐️ {{movie.movie_data.rating}}</span>
+            <span class="meta-badge">{{movie.movie_data.lang}}</span>
+            <span class="meta-badge">{{movie.movie_data.genres}}</span>
+        </div>
+
+        <div class="section-divider">Select Quality / Episode</div>
+
+        <div class="download-grid">
+            {% if movie.type == 'movie' %}
+                <!-- একক মুভির কোয়ালিটি বাটনসমূহ -->
+                {% if movie.dl_links.get('480p') %}
+                <div class="download-row">
+                    <div class="quality-info">
+                        <div class="quality-label">🎥 SD 480p Quality</div>
+                        <div class="size-label">File Size: Normal | Format: MKV</div>
+                    </div>
+                    <a href="{{prefix}}/download/{{movie._id}}/480p" class="premium-btn btn-sunset">Download 480p</a>
+                </div>
+                {% endif %}
+
+                {% if movie.dl_links.get('720p') %}
+                <div class="download-row">
+                    <div class="quality-info">
+                        <div class="quality-label">🎬 HD 720p Quality</div>
+                        <div class="size-label">File Size: Optimized | Format: MKV</div>
+                    </div>
+                    <a href="{{prefix}}/download/{{movie._id}}/720p" class="premium-btn btn-electric">Download 720p</a>
+                </div>
+                {% endif %}
+
+                {% if movie.dl_links.get('1080p') %}
+                <div class="download-row">
+                    <div class="quality-info">
+                        <div class="quality-label">🍿 Full HD 1080p Quality</div>
+                        <div class="size-label">File Size: Full Quality | Format: MKV</div>
+                    </div>
+                    <a href="{{prefix}}/download/{{movie._id}}/1080p" class="premium-btn btn-royal">Download 1080p</a>
+                </div>
+                {% endif %}
+            {% else %}
+                <!-- ওয়েব সিরিজ এপিসোড সিলেকশন উইজেট (এনিমেশনসহ) -->
+                {% if not movie.get('episodes') %}
+                    <p class="text-muted small">No episodes uploaded yet.</p>
+                {% else %}
+                    {% for ep in movie.episodes %}
+                    <div class="episode-card">
+                        <div class="episode-bar" onclick="toggleEpisode('ep-{{loop.index}}', this)">
+                            <span>⚡ {{ep.name}}</span>
+                            <span class="episode-icon">▼</span>
+                        </div>
+                        <div id="ep-{{loop.index}}" class="episode-content-box">
+                            <div class="d-flex flex-column gap-2">
+                                {% if ep.links and ep.links.get('480p') %}
+                                <a href="{{prefix}}/download/{{movie._id}}/480p" class="premium-btn btn-sunset w-100 justify-content-center">🎥 SD 480p Quality</a>
+                                {% endif %}
+                                {% if ep.links and ep.links.get('720p') %}
+                                <a href="{{prefix}}/download/{{movie._id}}/720p" class="premium-btn btn-electric w-100 justify-content-center">🎬 HD 720p Quality</a>
+                                {% endif %}
+                                {% if ep.links and ep.links.get('1080p') %}
+                                <a href="{{prefix}}/download/{{movie._id}}/1080p" class="premium-btn btn-royal w-100 justify-content-center">🍿 Full HD 1080p Quality</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            {% endif %}
+        </div>
+        
+        <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity: 0.6;">⚡ Powered by BD Movie Zone Hub</p>
+    </div>
+
+    <script>
+        function toggleEpisode(id, barElement) {
+            const contentBox = document.getElementById(id);
+            const icon = barElement.querySelector('.episode-icon');
+            const card = barElement.parentElement;
+
+            if (contentBox.style.display === "block") {
+                contentBox.style.display = "none";
+                icon.style.transform = "rotate(0deg)";
+                card.classList.remove('open');
+            } else {
+                contentBox.style.display = "block";
+                icon.style.transform = "rotate(180deg)";
+                card.classList.add('open');
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+# ==================== প্রিমিয়াম নিয়ন প্রগ্রেস টাইমার টেমপ্লেট (DOWNLOAD_HTML) ====================
+
 DOWNLOAD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -1168,7 +1549,6 @@ DOWNLOAD_HTML = """
             position: relative;
         }
         
-        /* ব্যাকগ্রাউন্ড ব্লার ইফেক্ট */
         .backdrop-bg {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -1300,7 +1680,7 @@ DOWNLOAD_HTML = """
     <div class="landing-card shadow-lg">
         <img src="{{movie.movie_data.poster}}" alt="Poster" class="movie-poster">
         <div class="movie-title">{{movie.movie_data.title}}</div>
-        <div class="quality-badge">💿 Selected: {{quality}}</div>
+        <div class="quality-badge">Selected: {{quality}}</div>
 
         <!-- প্রগ্রেস সার্কেল উইজেট -->
         <div id="countdownBox">
