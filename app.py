@@ -30,6 +30,7 @@ MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Mo
 PREFIX = "/view/Movie-Post-Generator"
 
 http_session = None
+main_loop = None  # বটের রানিং লুপ স্টোর করার জন্য
 web_app = Flask(__name__)
 web_app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey_bdmoviezone')
 
@@ -88,7 +89,6 @@ def save_settings(settings):
 
 system_settings = load_settings()
 
-# কাস্টম ইউজার সেফগার্ড সহ ডাইনামিক ওয়েবসাইট লিঙ্ক প্রোটেকশন ফাংশন
 def get_website_url():
     settings = load_settings()
     url = settings.get('website_url', '').strip()
@@ -99,7 +99,6 @@ def get_website_url():
         url = url[:-6]
     return url + '/'
 
-# মাল্টিপল অ্যাডমিন আইডি সংগ্রহের ফাংশন
 def get_admin_ids():
     settings = load_settings()
     admin_str = settings.get('admin_ids_str', '').strip()
@@ -111,6 +110,15 @@ def get_admin_ids():
             except ValueError:
                 pass
     return list(set(admins))
+
+# থ্রেড-সেফ উপায়ে ফ্ল্যাস্ক থেকে বটের কাজগুলো করানোর ড্রাইভার ফাংশন
+def run_async(coro, timeout=15):
+    global main_loop
+    if main_loop is None:
+        loop = asyncio.new_event_loop()
+        return loop.run_until_complete(coro)
+    future = asyncio.run_coroutine_threadsafe(coro, main_loop)
+    return future.result(timeout=timeout)
 
 # --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
 def load_movies_db():
@@ -192,6 +200,7 @@ def delete_movie_from_db(movie_id):
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
+
 # ==================== পাবলিক ডাইনামিক মুভি পোর্টাল (হোমপেজ) ====================
 
 @web_app.route('/')
@@ -227,6 +236,25 @@ def get_settings_api():
     settings = load_settings()
     return jsonify(settings)
 
+# TMDB রিমোট রিকোয়েস্ট অ্যাসিনক্রোনাস ফাংশনসমূহ
+async def fetch_tmdb_data_job(tmdb_id, is_tv):
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, timeout=10) as r:
+            if r.status != 200: return None
+            return await r.json()
+
+async def search_tmdb_job(query, is_tv):
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, timeout=10) as r:
+            if r.status == 200:
+                res = await r.json()
+                return res.get('results', [])
+    return []
+
 @web_app.route('/api/tmdb-fetch', methods=['POST'])
 @web_app.route(f'{PREFIX}/api/tmdb-fetch', methods=['POST'])
 def tmdb_fetch_api():
@@ -242,18 +270,7 @@ def tmdb_fetch_api():
             tmdb_id = match.group(2)
             is_tv = (match.group(1) == "tv")
             
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
-    
-    async def fetch():
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=10) as r:
-                if r.status != 200: return None
-                return await r.json()
-                
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    res_data = loop.run_until_complete(fetch())
+    res_data = run_async(fetch_tmdb_data_job(tmdb_id, is_tv))
     if not res_data: return jsonify({"error": "Failed to fetch data"}), 400
         
     title = res_data.get('title') if not is_tv else res_data.get('name')
@@ -281,19 +298,8 @@ def tmdb_search_endpoint():
     query = data.get('query', '').strip()
     is_tv = data.get('is_tv', False)
     
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
-    
-    async def fetch():
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status == 200: return await r.json()
-        return None
-        
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(fetch())
-    return jsonify(res.get('results', []) if res else [])
+    results = run_async(search_tmdb_job(query, is_tv))
+    return jsonify(results)
 
 
 # ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
@@ -376,9 +382,7 @@ def post_to_channel(movie_id):
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
     
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    success = loop.run_until_complete(send_movie_to_channel_job(movie_id))
+    success = run_async(send_movie_to_channel_job(movie_id))
     
     if success:
         return redirect(f"{PREFIX}/admin?posted=success")
@@ -396,7 +400,6 @@ async def send_movie_to_channel_job(movie_id):
     if not channel_id:
         return False
         
-    # ইউজারনেম নাকি সংখ্যাভিত্তিক আইডি তা যাচাই করে পাঠানো
     if channel_id.startswith('-') or channel_id.isdigit():
         try:
             channel_id = int(channel_id)
@@ -442,6 +445,10 @@ def delete_movie(movie_id):
 def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(f"{PREFIX}/admin/login")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
 
 
 # ==================== পাইগ্রাম টেলিগ্রাম বট ও অটো-পার্স লজিক ====================
@@ -529,7 +536,6 @@ async def handle_start(client, message):
     live_site_url = get_website_url()
     admin_btn = []
     
-    # অ্যাডমিন আইডি লিষ্টিং ভেরিফিকেশন
     if chat_id in get_admin_ids():
         admin_btn = [
             [InlineKeyboardButton("⚙️ অ্যাডমিন কন্ট্রোল প্যানেল (Login)", url=live_site_url + "admin")],
@@ -656,7 +662,6 @@ async def auto_file_poster_handler(client, message):
         f"💡 একই মুভির ভিন্ন কোয়ালিটি লিংক এড করতে চাইলে শুধু ফাইলটি ফরোয়ার্ড করলেই হবে, ডাটা অটোমেটিক মার্জ হয়ে যাবে।"
     )
     
-    # এখানে সরাসরি নির্দিষ্ট মুভির পাবলিক পেজ `/movie/id` দেওয়া হয়েছে
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🛠️ ল্যাঙ্গুয়েজ ট্যাগ বসান (অ্যাডমিন প্যানেল)", url=live_site_url + "admin")],
         [InlineKeyboardButton("🌐 সাইটে পোস্টটি দেখুন", url=live_site_url + "movie/" + m_id_unique)]
@@ -790,7 +795,7 @@ DASHBOARD_HTML = """
         </div>
         {% elif posted_status == 'failed' %}
         <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <strong>❌ ব্যর্থ হয়েছে!</strong> চ্যানেল আইডি চেক করুন অথবা নিশ্চিত করুন বটটি আপনার চ্যানেলের এডমিন রয়েছে।
+            <strong>❌ ব্যর্থ হয়েছে!</strong> চ্যানেল আইডি বা ইউজারনেম চেক করুন অথবা নিশ্চিত করুন বটটি আপনার চ্যানেলের এডমিন রয়েছে।
         </div>
         {% endif %}
 
@@ -1305,7 +1310,7 @@ MOVIE_DETAIL_HTML = """
         </div>
     </div>
 
-    <!-- গ্লোয়িং এনিমেটেড মডাল উইজেট -->
+    <!-- গলোয়িং এনিমেটেড মডাল উইজেট -->
     <div id="timerOverlay" class="timer-overlay">
         <div class="text-center" id="overlayHeader">
             <h5 class="text-white font-weight-bold mb-1">Generating Download Link...</h5>
@@ -1376,14 +1381,22 @@ MOVIE_DETAIL_HTML = """
 </html>
 """
 
+
+# ==================== সিস্টেম রানার ব্লক ====================
+
 if __name__ == '__main__':
+    # ফ্ল্যাস্ক সার্ভারকে ব্যাকগ্রাউন্ড থ্রেডে রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
     
     async def main():
-        global http_session
+        global http_session, main_loop
         print("Starting Pyrogram Bot Client...")
+        
+        # থ্রেড-সেফ অ্যাক্সেসের জন্য মেইন ইভেন্ট লুপটি স্টোর করে রাখা
+        main_loop = asyncio.get_running_loop()
+        
         await app.start()
         http_session = aiohttp.ClientSession()
         print("System Online & Connected!")
