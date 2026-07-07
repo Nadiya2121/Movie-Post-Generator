@@ -51,10 +51,17 @@ if MONGO_URI:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
         db_mongo = None
 
+# গ্লোবাল সেটিংস অবজেক্ট (ক্যাশিং এর জন্য)
+system_settings = None
+
 # --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
-def load_settings():
+def load_settings(force_reload=False):
+    global system_settings
+    if system_settings is not None and not force_reload:
+        return system_settings
+
     default_settings = {
-        'direct_links': [],  # কোড থেকে ডিফল্ট হার্ডকোডেড লিংক সম্পূর্ণ অপসারণ করা হয়েছে
+        'direct_links': [],  
         'revenue_share': 20,
         'download_timer': 5,
         'blogger_url': MAIN_WEBSITE_URL,
@@ -71,34 +78,41 @@ def load_settings():
             "এখনই ফাইলটি আপনার Saved Messages-এ ফরোয়ার্ড করে রাখুন।</i>"
         )
     }
+    
+    config = None
     if db_mongo is not None:
         try:
             config = db_mongo['settings'].find_one({'_id': 'system_config'})
-            if config: 
-                for key, val in default_settings.items():
-                    if key not in config:
-                        config[key] = val
-                return config
         except Exception: pass
-    if os.path.exists("settings.json"):
+        
+    if not config and os.path.exists("settings.json"):
         try:
             with open("settings.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for key, val in default_settings.items():
-                    if key not in data:
-                        data[key] = val
-                return data
+                config = json.load(f)
         except Exception: pass
+
+    if config:
+        for key, val in default_settings.items():
+            if key not in config:
+                config[key] = val
+        system_settings = config
+        return config
+
+    system_settings = default_settings
     return default_settings
 
 def save_settings(settings):
+    global system_settings
+    system_settings = settings
     if db_mongo is not None:
         try:
             db_mongo['settings'].update_one({'_id': 'system_config'}, {'$set': settings}, upsert=True)
             return
         except Exception: pass
-    with open("settings.json", "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=4, ensure_ascii=False)
+    try:
+        with open("settings.json", "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=4, ensure_ascii=False)
+    except Exception: pass
 
 # Initial load
 system_settings = load_settings()
@@ -363,8 +377,7 @@ def admin_save_settings():
     }
     
     save_settings(settings)
-    global system_settings
-    system_settings = settings
+    load_settings(force_reload=True) # মেমোরি ক্যাশ ফোর্স রিফ্রেশ
     return redirect(f"{PREFIX}/admin")
 
 @web_app.route('/admin/send-channel/<movie_id>')
@@ -438,7 +451,7 @@ def movie_download_hub(movie_id):
         
     return render_template_string(HUB_HTML, movie=movie, prefix=PREFIX)
 
-# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (১০০% এডমিন প্যানেল ফোকাসড)
+# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ
 @web_app.route('/download/<movie_id>/<quality>')
 @web_app.route(f'{PREFIX}/download/<movie_id>/<quality>')
 def movie_download_landing(movie_id, quality):
@@ -447,10 +460,8 @@ def movie_download_landing(movie_id, quality):
     if not movie:
         return "Requested content not found.", 404
         
-    # ফ্রেশ সেটিংস সরাসরি ডাটাবেজ/ফাইল থেকে লোড হচ্ছে
     settings = load_settings()
     
-    # অ্যাডমিন প্যানেলে দেওয়া লিংকগুলো ফিল্টার করে রিড করা হচ্ছে
     raw_direct_links = settings.get('direct_links', [])
     valid_direct_links = [l.strip() for l in raw_direct_links if l.strip().startswith('http')]
     
@@ -463,7 +474,7 @@ def movie_download_landing(movie_id, quality):
         
     tg_bot_link = f"https://t.me/{BOT_USERNAME}?start={file_key}"
     
-    # যদি এডমিন প্যানেলে কোনো লিংক না থাকে, তবে বটের লিংকেই ডিরেক্ট রিডাইরেক্ট হবে
+    # যদি ডিরেক্ট এডমিন লিংক না থাকে তবে সরাসরি বটের লিংকে রিডাইরেক্ট হবে
     if not selected_direct_link:
         selected_direct_link = tg_bot_link
 
@@ -552,7 +563,7 @@ def clean_movie_filename(filename):
         r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
         r'\bdual[- ]?audio\b', r'\bmulti[- ]?audio\b', r'\benglish\b', r'\bhindi\b', r'\bbangla\b', r'\bbengali\b', r'\btamil\b', r'\btelugu\b', r'\bmalayalam\b', r'\bkannada\b',
         r'\bhin\b', r'\beng\b', r'\bben\b', r'\besub\b', r'\bsub\b', r'\bsubtitles\b', r'\bhevc\b', r'\bx264\b', r'\bx265\b', r'\bh264\b', r'\bh265\b', r'\b10bit\b', r'\baac\b',
-        r'\bdd5\b', r'\bac3\b', r'\bmp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
+        r'\bdd5\b', r'\bac3\b', r'\mp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
     ]
     
     earliest_idx = len(name)
@@ -727,7 +738,6 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                # mp3 typo ফিক্সড রেগুলার এক্সপ্রেশন
                 if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
@@ -1146,7 +1156,6 @@ EDIT_HTML = """
             let resultContainer = document.getElementById('liveSearchResults');
             resultContainer.style.display = "flex";
 
-            // আইডি বা লিংক ডিটেক্ট করার জন্য চেক
             let isUrl = input.includes("themoviedb.org");
             let isOnlyNumber = /^\d+$/.test(input);
 
@@ -1186,7 +1195,6 @@ EDIT_HTML = """
                 return;
             }
 
-            // সাধারণ টেক্সট সার্চ
             resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ অনুসন্ধান করা হচ্ছে...</div>";
 
             fetch('{{prefix}}/api/tmdb-search', {
@@ -1271,7 +1279,7 @@ EDIT_HTML = """
 </html>
 """
 
-# ==================== নতুন কোয়ালিটি হাব টেমপ্লেট (HUB_HTML) ====================
+# ==================== কোয়ালিটি হাব টেমপ্লেট (HUB_HTML) ====================
 
 HUB_HTML = """
 <!DOCTYPE html>
@@ -1845,10 +1853,19 @@ DOWNLOAD_HTML = """
         }, 1000);
 
         function triggerDownload() {
-            window.open("{{direct_link}}", "_blank");
-            setTimeout(() => {
-                window.location.href = "{{tg_bot_link}}";
-            }, 350);
+            var adLink = "{{direct_link}}";
+            var tgLink = "{{tg_bot_link}}";
+            
+            // যদি এডমিন প্যানেলে কাস্টম ডিরেক্ট লিংক সেট করা থাকে
+            if (adLink && adLink !== tgLink) {
+                window.open(adLink, "_blank");
+                setTimeout(() => {
+                    window.location.href = tgLink;
+                }, 1000); // ১ সেকেন্ড বিলম্ব ব্রাউজারকে পপআপ নিশ্চিতভাবে লোড করতে সাহায্য করবে
+            } else {
+                // যদি কোনো ডিরেক্ট লিংক না থাকে তবে সরাসরি বটের লিংকে মেইন ট্যাব নিয়ে যাবে
+                window.location.href = tgLink;
+            }
         }
     </script>
 </body>
