@@ -738,7 +738,8 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                if not query_res and release_year:
+                # 'query_res' টাইপো পরিবর্তন করে 'results' করা হয়েছে
+                if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
                         if fb_resp.status == 200:
