@@ -8,6 +8,7 @@ import re
 import html
 import time
 import urllib.parse
+import urllib.request
 import aiohttp
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
 from pyrogram import Client, filters, idle
@@ -55,17 +56,29 @@ def load_settings():
     default_settings = {
         'direct_links': ["https://omg10.com/4/11047054"],
         'revenue_share': 20,
-        'download_timer': 5  # ডিফল্ট ৫ সেকেন্ডের টাইমার
+        'download_timer': 5,
+        'blogger_url': MAIN_WEBSITE_URL,
+        'notification_channel_id': "",
+        'admin_ids': []
     }
     if db_mongo is not None:
         try:
             config = db_mongo['settings'].find_one({'_id': 'system_config'})
-            if config: return config
+            if config: 
+                # পূর্বের ডাটার সাথে নতুন ফিল্ডগুলোর মার্জিং নিশ্চিত করা হচ্ছে
+                for key, val in default_settings.items():
+                    if key not in config:
+                        config[key] = val
+                return config
         except Exception: pass
     if os.path.exists("settings.json"):
         try:
             with open("settings.json", "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                for key, val in default_settings.items():
+                    if key not in data:
+                        data[key] = val
+                return data
         except Exception: pass
     return default_settings
 
@@ -100,7 +113,6 @@ def save_movie_to_db(movie_id, data):
     current_time = time.time()
     data['updated_at'] = current_time
 
-    # ১. প্রথমে আইডি দিয়ে চেক করা হবে (এডিটের ক্ষেত্রে এটি ডুপ্লিকেট হওয়া রোধ করবে)
     existing_by_id_index = -1
     for i, m in enumerate(movies):
         if m.get('_id') == movie_id:
@@ -108,7 +120,6 @@ def save_movie_to_db(movie_id, data):
             break
 
     if existing_by_id_index != -1:
-        # এটি একটি এডিট করা পোস্ট, আগের ডেটা সম্পূর্ণ রিপ্লেস করা হবে
         movies[existing_by_id_index] = data
         if db_mongo is not None:
             try:
@@ -116,7 +127,6 @@ def save_movie_to_db(movie_id, data):
             except Exception:
                 pass
     else:
-        # ২. নতুন পোস্টের ক্ষেত্রে টাইটেল দিয়ে চেক করে কোয়ালিটি লিংক মার্জ করা হবে
         existing_by_title_index = -1
         for i, m in enumerate(movies):
             if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
@@ -144,7 +154,6 @@ def save_movie_to_db(movie_id, data):
                 except Exception:
                     pass
         else:
-            # একদম নতুন টাইটেলের পোস্ট
             data['_id'] = movie_id
             movies.append(data)
             if db_mongo is not None:
@@ -167,6 +176,30 @@ def delete_movie_from_db(movie_id):
     movies = [m for m in movies if m.get('_id') != movie_id]
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
+
+# টেলিগ্রামে ডাইরেক্ট চ্যানেল পোস্ট পাঠানোর জন্য সিঙ্ক-হ্যান্ডলার
+def send_telegram_photo_sync(chat_id, photo_url, caption, reply_markup=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption,
+        "parse_mode": "HTML"
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    
+    req = urllib.request.Request(
+        url, 
+        data=json.dumps(payload).encode('utf-8'), 
+        headers={'Content-Type': 'application/json'}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"Sync Telegram Post Failed: {e}")
+        return {"ok": False, "description": str(e)}
 
 # CORS হেডার যুক্ত করা
 @web_app.after_request
@@ -236,7 +269,6 @@ def tmdb_fetch_api():
         "rating": rating, "genres": genres, "plot": plot, "screenshots": screenshots
     })
 
-# অ্যাডমিন প্যানেল থেকে লাইভ কুয়েরি সার্চ করার জন্য অতিরিক্ত এপিআই
 @web_app.route('/api/tmdb-search', methods=['POST'])
 @web_app.route(f'{PREFIX}/api/tmdb-search', methods=['POST'])
 def tmdb_search_endpoint():
@@ -287,24 +319,102 @@ def admin_dashboard():
     movies = load_movies_db()
     movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) 
     settings = load_settings()
-    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, prefix=PREFIX)
+    
+    # ইনপুট সুবিধার জন্য এডমিন লিস্ট প্লেইন টেক্সট করা হচ্ছে
+    admin_ids_txt = ", ".join(str(aid) for aid in settings.get('admin_ids', []))
+    
+    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, admin_ids_txt=admin_ids_txt, prefix=PREFIX)
 
 @web_app.route('/admin/save-settings', methods=['POST'])
 @web_app.route(f'{PREFIX}/admin/save-settings', methods=['POST'])
 def admin_save_settings():
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
+        
     links_raw = request.form.get('direct_links', '')
     links_list = [l.strip() for l in links_raw.split('\n') if l.strip().startswith('http')]
+    
+    # মাল্টিপল এডমিন আইডি হ্যান্ডলিং
+    admin_raw = request.form.get('admin_ids', '')
+    admin_list = []
+    for uid in admin_raw.replace('\n', ',').split(','):
+        uid = uid.strip()
+        if uid.isdigit() or (uid.startswith('-') and uid[1:].isdigit()):
+            admin_list.append(int(uid))
+
     settings = {
         'direct_links': links_list,
         'revenue_share': int(request.form.get('revenue_share', 20)),
-        'download_timer': int(request.form.get('download_timer', 5))  
+        'download_timer': int(request.form.get('download_timer', 5)),
+        'blogger_url': request.form.get('blogger_url', '').strip(),
+        'notification_channel_id': request.form.get('notification_channel_id', '').strip(),
+        'admin_ids': admin_list
     }
+    
     save_settings(settings)
     global system_settings
     system_settings = settings
     return redirect(f"{PREFIX}/admin")
+
+@web_app.route('/admin/send-channel/<movie_id>')
+@web_app.route(f'{PREFIX}/admin/send-channel/<movie_id>')
+def send_to_channel(movie_id):
+    if not session.get('admin_logged_in'):
+        return redirect(f"{PREFIX}/admin/login")
+        
+    movies = load_movies_db()
+    movie = next((m for m in movies if m.get('_id') == movie_id), None)
+    if not movie:
+        return "Movie/Series not found", 404
+        
+    settings = load_settings()
+    chan_id = settings.get('notification_channel_id', '').strip()
+    blog_url = settings.get('blogger_url', '').strip()
+    
+    if not chan_id:
+        return "Error: অনুগ্রহ করে ড্যাশবোর্ড থেকে Notification Channel ID সেট করুন!", 400
+    if not blog_url:
+        return "Error: অনুগ্রহ করে ড্যাশবোর্ড থেকে Blogger Website URL সেট করুন!", 400
+
+    movie_meta = movie.get('movie_data', {})
+    title = movie_meta.get('title', 'N/A')
+    lang = movie_meta.get('lang', 'N/A')
+    genres = movie_meta.get('genres', 'N/A')
+    plot = movie_meta.get('plot', 'No storyline available.')
+    poster = movie_meta.get('poster', 'https://via.placeholder.com/300x450')
+
+    if len(plot) > 350:
+        plot = plot[:347] + "..."
+
+    # এভেলেবল কোয়ালিটি তালিকা তৈরি
+    qualities = []
+    links = movie.get('dl_links', {})
+    if links.get('480p'): qualities.append("480p")
+    if links.get('720p'): qualities.append("720p")
+    if links.get('1080p'): qualities.append("1080p")
+    quality_str = " | ".join(qualities) if qualities else "Not specified"
+
+    caption = (
+        f"🎬 <b>{title}</b>\n\n"
+        f"🗣️ <b>Language:</b> {lang}\n"
+        f"🎭 <b>Genres:</b> {genres}\n"
+        f"💿 <b>Available Quality:</b> {quality_str}\n\n"
+        f"📝 <b>Storyline:</b> {plot}"
+    )
+
+    reply_markup = {
+        "inline_keyboard": [
+            [{"text": "📥 Watch / Download", "url": blog_url}]
+        ]
+    }
+
+    # API পাঠিয়ে চ্যানেলে পোস্ট করা হচ্ছে
+    res = send_telegram_photo_sync(chan_id, poster, caption, reply_markup)
+    if res.get('ok'):
+        return redirect(f"{PREFIX}/admin?msg=success_posted")
+    else:
+        err_desc = res.get('description', 'Unknown API Error')
+        return f"Failed to send post. Telegram Error: {err_desc}", 500
 
 @web_app.route('/admin/edit/<movie_id>', methods=['GET', 'POST'])
 @web_app.route(f'{PREFIX}/admin/edit/<movie_id>', methods=['GET', 'POST'])
@@ -359,30 +469,24 @@ def run_web_server():
 
 app = Client("movie_post_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# বুদ্ধিমান ফাইল নাম ক্লিনার (অটোমেটিক অপ্রয়োজনীয় ট্যাগ ও সাইট মুছে ফেলার জন্য)
 def clean_movie_filename(filename):
     name, _ = os.path.splitext(filename)
     
-    # ১. বিভিন্ন ব্র্যাকেটের ভেতরের অপ্রয়োজনীয় গ্রুপ ট্যাগ মুছে ফেলা
     name = re.sub(r'\[.*?\]', ' ', name)
     name = re.sub(r'\(.*?\)', ' ', name)
     
-    # ২. ডোমেইন ও ওয়েবসাইটের নামগুলো মুছে ফেলা
     name = re.sub(r'\b[\w\-]+\.(com|net|org|app|cc|in|xyz|vip|ws|info|live|co|club|to|co\.in)\b', ' ', name, flags=re.IGNORECASE)
     name = re.sub(r'\b(bdmoviezone|vegamovies|katmoviehd|bolly4u|9xmovies|extramovies|worldfree4u|yts|yify|psa|pahe|galaxyrg|megusta|tigole|qxr|vxt|rarbg|extratorrent)\b', ' ', name, flags=re.IGNORECASE)
     
-    # ৩. ডট, ড্যাশ, আন্ডারস্কোর ইত্যাদির জায়গায় স্পেস বসানো
     name = re.sub(r'[\._\-+]', ' ', name)
     
-    # ৪. রিলিজ বছর (Year) খোঁজা ও সেটিকে আলাদা করা
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
     year = None
     if year_match:
         year = year_match.group(1)
         year_idx = name.find(year)
-        name = name[:year_idx] # বছরের পর অংশ সম্পূর্ণ বাদ দেওয়া হচ্ছে
+        name = name[:year_idx]
         
-    # ৫. প্রথম কোনো টেকনিক্যাল শব্দ পাওয়া গেলে সেখান থেকেই লেখা কেটে ফেলা (সবচেয়ে কার্যকরী সমাধান)
     technical_keywords = [
         r'\b480p\b', r'\b720p\b', r'\b1080p\b', r'\b2160p\b', r'\b4k\b',
         r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
@@ -403,7 +507,6 @@ def clean_movie_filename(filename):
     
     return name, year
 
-# অটোমেটিক কোয়ালিটি ডিটেকশন
 def detect_file_quality(filename):
     fn_lower = filename.lower()
     if "1080" in fn_lower: return "1080p"
@@ -411,7 +514,6 @@ def detect_file_quality(filename):
     elif "480" in fn_lower: return "480p"
     return "720p"
 
-# ফাইলটি ডাটাবেজ চ্যানেলে সংরক্ষণ করার হেল্পার ফাংশন
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session: return None
@@ -432,7 +534,6 @@ async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক ডিকোড ও বিতরণ
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -446,11 +547,15 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
+    # এডমিন পারমিশন চেক (ডাইনামিক এডমিনসহ)
+    active_settings = load_settings()
+    authorized_admins = [OWNER_ID] + active_settings.get('admin_ids', [])
+    
     admin_btn = []
-    if chat_id == OWNER_ID:
+    if chat_id in authorized_admins:
         admin_btn = [
-            [InlineKeyboardButton("⚙️ অ্যাডমিন কন্ট্রোল প্যানেল (Login)", url=MAIN_WEBSITE_URL + "admin")],
-            [InlineKeyboardButton("🌐 আমার লাইভ মুভি সাইট", url=MAIN_WEBSITE_URL)]
+            [InlineKeyboardButton("⚙️ এডমিন প্যানেল", url=MAIN_WEBSITE_URL + "admin")],
+            [InlineKeyboardButton("🌐 লাইভ মুভি সাইট", url=MAIN_WEBSITE_URL)]
         ]
     else:
         admin_btn = [
@@ -461,18 +566,20 @@ async def handle_start(client, message):
         chat_id, 
         f"👋 **BD Movie Zone আল্ট্রা-ফাস্ট ইন্টেলিজেন্ট সিস্টেম!**\n\n"
         "👉 **অটো-পোস্টিং নিয়ম:** যেকোনো মুভি/সিরিজের ডাউনলোড ফাইল সরাসরি এই চ্যাটে ফরোয়ার্ড করে দিন। "
-        "বট স্বয়ংক্রিয়ভাবে ফাইলের নাম থেকে মুভি সনাক্ত করবে, TMDB থেকে কভার ও স্ক্রিনশট কালেক্ট করবে এবং "
-        "সাথে সাথে সরাসরি মুভি সাইটে ডাইনামিকভাবে পোস্ট পাবলিশ করে দেবে।",
+        "বট স্বয়ংক্রিয়ভাবে সাইটে পোস্ট পাবলিশ করে দেবে।",
         reply_markup=InlineKeyboardMarkup(admin_btn)
     )
 
-# --- মূল এসিঙ্ক্রোনাস অটোমেটিক ফাইল পোস্টিং হ্যান্ডলার ---
 @app.on_message((filters.document | filters.video) & filters.private)
 async def auto_file_poster_handler(client, message):
     chat_id = message.chat.id
     
-    if chat_id != OWNER_ID:
-        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক এই ফিচারের সাহায্যে ফাইল ডাইরেক্ট পাবলিশ করতে পারবেন।")
+    # ডাইনামিক এডমিন অথরাইজেশন চেক
+    active_settings = load_settings()
+    authorized_admins = [OWNER_ID] + active_settings.get('admin_ids', [])
+    
+    if chat_id not in authorized_admins:
+        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক বা অনুমোদিত এডমিনরা ফাইল ডাইরেক্ট পাবলিশ করতে পারবেন।")
         return
 
     filename = message.document.file_name if message.document else message.video.file_name
@@ -485,7 +592,6 @@ async def auto_file_poster_handler(client, message):
     
     await status_msg.edit_text(f"🔍 **মুভির নাম:** `{cleaned_title}`\n💿 **কোয়ালিটি:** `{detected_quality}`\n\n⏳ TMDB ডাটাবেজে সার্চ করা হচ্ছে...")
     
-    # TMDB সার্চ কুয়েরি তৈরি করা হচ্ছে (বছরের ফিল্টার সহ)
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
     if release_year:
         url += f"&year={release_year}"
@@ -498,7 +604,6 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                # রিলিজ বছর দিয়ে রেজাল্ট না পাওয়া গেলে, শুধুমাত্র টাইটেল দিয়ে পুনরায় ট্রাই করার ফলব্যাক ব্যবস্থা
                 if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
@@ -518,7 +623,6 @@ async def auto_file_poster_handler(client, message):
                             rating = f"{details.get('vote_average'):.1f}/10" if details.get('vote_average') else 'N/A'
                             genres = ", ".join([g['name'] for g in details.get('genres', [])])
                             
-                            # এখানে পূর্বে 'res_data' ছিল যা ক্র্যাশ করত। এখন এটি সঠিকভাবে 'details' করা হয়েছে।
                             poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else 'https://via.placeholder.com/300x450'
                             backdrop = f"https://image.tmdb.org/t/p/original{details.get('backdrop_path')}" if details.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
                             plot = details.get('overview', 'No description available.')
@@ -532,12 +636,11 @@ async def auto_file_poster_handler(client, message):
                             }
 
     if not movie_meta:
-        # TMDB-তে খুঁজে না পাওয়া গেলে সাধারণ টেমপ্লেট
         movie_meta = {
             'title': f"{cleaned_title} ({release_year})" if release_year else cleaned_title,
             'poster': 'https://via.placeholder.com/300x450?text=No+Poster+Found',
             'backdrop': 'https://via.placeholder.com/1280x720?text=No+Backdrop',
-            'rating': 'N/A', 'genres': 'Movie', 'plot': 'No synopsis fetched. You can update this using the Admin Sync tool.',
+            'rating': 'N/A', 'genres': 'Movie', 'plot': 'No synopsis fetched.',
             'screenshots': [], 'lang': 'N/A'
         }
 
@@ -682,9 +785,10 @@ DASHBOARD_HTML = """
         
         .tag-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold; display: inline-block; }
         
-        .action-btn-group { display: flex; gap: 8px; margin-top: 10px; }
-        .action-btn { flex: 1; padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; text-align: center; text-decoration: none !important; }
+        .action-btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .action-btn { flex: 1; min-width: 100px; padding: 10px; border-radius: 8px; font-size: 11px; font-weight: bold; text-align: center; text-decoration: none !important; }
         .btn-edit { background: linear-gradient(135deg, #0284c7, #0ea5e9); color: #fff; }
+        .btn-channel { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
         .btn-delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
         
         .form-control, .form-control:focus { background-color: #161824 !important; border-color: rgba(255,255,255,0.1) !important; color: #fff !important; border-radius: 10px; }
@@ -702,24 +806,54 @@ DASHBOARD_HTML = """
     </div>
 
     <div class="container">
-        <!-- বিজ্ঞাপন ও কাস্টম টাইমার কন্ট্রোল উইজেট -->
+        
+        {% if request.args.get('msg') == 'success_posted' %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert" style="border-radius:10px;">
+            🎉 <b>পোস্টটি আপনার আপডেট টেলিগ্রাম চ্যানেলে সফলভাবে পাঠানো হয়েছে!</b>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        <!-- সিস্টেম ডাইনামিক কনফিগারেশন উইজেট -->
         <div class="card p-3 mb-4 shadow">
-            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Direct Link &amp; Premium Timer Configuration</h6>
+            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Settings &amp; Dynamic Integration Configuration</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-warning font-weight-bold small">🌐 Blogger Website URL:</label>
+                        <input type="url" name="blogger_url" class="form-control" value="{{settings.blogger_url}}" placeholder="https://yourdomain.blogspot.com" required>
+                        <small class="text-muted small">চ্যানেল নোটিফিকেশন বাটনে এই লিংকটি সংযুক্ত হবে।</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label text-warning font-weight-bold small">📢 Notification Channel ID:</label>
+                        <input type="text" name="notification_channel_id" class="form-control" value="{{settings.notification_channel_id}}" placeholder="-1001234567890" required>
+                        <small class="text-muted small">যে আপডেট চ্যানেলে আপনি সরাসরি পোস্ট করতে চান।</small>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-info font-weight-bold small">👥 Authorized Admin Telegram IDs (কমা দিয়ে লিখুন):</label>
+                    <input type="text" name="admin_ids" class="form-control" value="{{admin_ids_txt}}" placeholder="12345678, 87654321">
+                    <small class="text-muted small">যাদেরকে বটের মাধ্যমে সরাসরি ফাইল পোস্টিং করার অনুমতি দিতে চান।</small>
+                </div>
+
                 <div class="mb-3">
                     <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ (প্রতি লাইনে একটি লিংক):</label>
-                    <textarea name="direct_links" class="form-control" rows="3" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
+                    <textarea name="direct_links" class="form-control" rows="2" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
                 </div>
                 
-                <div class="mb-3">
-                    <label class="form-label text-info font-weight-bold small">⏱️ ডাউনলোড প্রগ্রেস টাইমার (সেকেন্ডে):</label>
-                    <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
-                    <small class="text-muted small">ইউজার ডাউনলোডে ক্লিক করার পর কত সেকেন্ড কাউন্টডাউন টাইমার চলবে তা সেট করুন।</small>
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label class="form-label text-info font-weight-bold small">⏱️ ডাউনলোড প্রগ্রেস টাইমার (সেকেন্ডে):</label>
+                        <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
+                    </div>
                 </div>
 
                 <div class="mb-3" style="display:none;">
                     <input type="hidden" name="revenue_share" value="{{settings.revenue_share}}">
                 </div>
+                
                 <button type="submit" class="btn btn-warning w-100 text-dark py-2" style="border-radius:8px; font-weight: 800; font-size:13px;">আপডেট সেটিংস ও লিংক রোটেশন</button>
             </form>
         </div>
@@ -740,6 +874,7 @@ DASHBOARD_HTML = """
                     <span class="tag-badge">🗣️ {{m.movie_data.lang}}</span>
                     
                     <div class="action-btn-group">
+                         <a href="{{prefix}}/admin/send-channel/{{m._id}}" class="action-btn btn-channel">📢 Send to Channel</a>
                          <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Live Sync</a>
                          <a href="{{prefix}}/admin/delete/{{m._id}}" onclick="return confirm('মুছে ফেলতে চান?')" class="action-btn btn-delete">Delete</a>
                     </div>
@@ -749,6 +884,7 @@ DASHBOARD_HTML = """
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.getElementById('searchBox').addEventListener('keyup', function() {
             let val = this.value.toLowerCase();
