@@ -22,11 +22,6 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
-
-OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/11047054') 
-REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
-IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70a') 
-
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
@@ -47,10 +42,43 @@ if MONGO_URI:
         mongo_client.server_info() 
         print("MongoDB Connected Successfully!")
     except Exception as e:
-        print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
+        print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON Database.")
         db_mongo = None
 
-# --- ডেটা রিড ও রাইট মেকানিজম ---
+# --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
+def load_settings():
+    default_settings = {
+        'direct_links': ["https://omg10.com/4/11047054"],  # ডিফল্ট বিজ্ঞাপন রোটেশন লিংক
+        'revenue_share': 20
+    }
+    if db_mongo is not None:
+        try:
+            config = db_mongo['settings'].find_one({'_id': 'system_config'})
+            if config:
+                return config
+        except Exception:
+            pass
+    if os.path.exists("settings.json"):
+        try:
+            with open("settings.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default_settings
+
+def save_settings(settings):
+    if db_mongo is not None:
+        try:
+            db_mongo['settings'].update_one({'_id': 'system_config'}, {'$set': settings}, upsert=True)
+            return
+        except Exception:
+            pass
+    with open("settings.json", "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=4, ensure_ascii=False)
+
+system_settings = load_settings()
+
+# --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
 def load_movies_db():
     if db_mongo is not None:
         try:
@@ -66,19 +94,49 @@ def load_movies_db():
     return []
 
 def save_movie_to_db(movie_id, data):
-    data['_id'] = movie_id
-    if db_mongo is not None:
-        try:
-            db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-            return
-        except Exception:
-            pass
-    
-    # JSON Fallback
+    """মুভি সংরক্ষণের সময় একই টাইটেল থাকলে লিংক অটো-মার্জ করবে"""
     movies = load_movies_db()
-    # ডুপ্লিকেট এড়াতে রিমুভ করে নতুন করে রাইট
-    movies = [m for m in movies if m.get('_id') != movie_id]
-    movies.append(data)
+    existing_movie = None
+    
+    # টাইটেল চেক করে আগের পোস্ট আছে কি না চেক করুন
+    for m in movies:
+        if m['movie_data']['title'] == data['movie_data']['title']:
+            existing_movie = m
+            break
+            
+    if existing_movie:
+        # আগের মুভি পাওয়া গেছে, এখন নতুন ডাউনলোড কোয়ালিটি লিংকগুলো মার্জ করুন
+        if data['type'] == 'movie':
+            for quality, link in data['dl_links'].items():
+                if link:  # কেবল নতুন পাঠানো ভ্যালিড লিংকটি রিপ্লেস বা এড হবে
+                    existing_movie['dl_links'][quality] = link
+        else: # ওয়েব সিরিজের ক্ষেত্রে নতুন এপিসোড এপেন্ড হবে
+            existing_ep_names = [ep['name'] for ep in existing_movie['episodes']]
+            for ep in data['episodes']:
+                if ep['name'] not in existing_ep_names:
+                    existing_movie['episodes'].append(ep)
+                    
+        # ডাটাবেজ আপডেট
+        if db_mongo is not None:
+            try:
+                db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie})
+                return
+            except Exception:
+                pass
+        
+        movies = [m for m in movies if m.get('_id') != existing_movie['_id']]
+        movies.append(existing_movie)
+    else:
+        # একদম নতুন পোস্ট
+        data['_id'] = movie_id
+        if db_mongo is not None:
+            try:
+                db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
+                return
+            except Exception:
+                pass
+        movies.append(data)
+        
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
@@ -106,29 +164,21 @@ def add_cors_headers(response):
 
 @web_app.route('/api/movies', methods=['GET'])
 def get_all_movies_api():
-    """ব্লগার সাইট এই এপিআই থেকে সমস্ত মুভির ডাটা নিয়ে দেখাবে"""
     movies = load_movies_db()
     return jsonify(movies)
 
-@web_app.route('/api/movies/<movie_id>', methods=['GET'])
-def get_single_movie_api(movie_id):
-    movies = load_movies_db()
-    for m in movies:
-        if m.get('_id') == movie_id:
-            return jsonify(m)
-    return jsonify({"error": "Movie not found"}), 404
+@web_app.route('/api/settings', methods=['GET'])
+def get_settings_api():
+    settings = load_settings()
+    return jsonify(settings)
 
 @web_app.route('/api/tmdb-fetch', methods=['POST'])
 def tmdb_fetch_api():
-    """অ্যাডমিন প্যানেল থেকে TMDB ডাটা দ্রুত সিঙ্ক করার এপিআই"""
     if not session.get('admin_logged_in'):
         return jsonify({"error": "Unauthorized"}), 401
-        
     data = request.json or {}
     tmdb_input = data.get('tmdb_input', '').strip()
     is_tv = data.get('is_tv', False)
-    
-    # আইডি এক্সট্রাক্ট করা (লিঙ্ক বা ডিরেক্ট আইডি থেকে)
     tmdb_id = tmdb_input
     if "themoviedb.org" in tmdb_input:
         match = re.search(r"/(movie|tv)/(\d+)", tmdb_input)
@@ -139,50 +189,35 @@ def tmdb_fetch_api():
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
     
-    # এসিঙ্ক্রোনাসলি কল সম্পন্ন করতে loop ক্রিয়েট
     async def fetch():
         async with aiohttp.ClientSession() as s:
             async with s.get(url, timeout=10) as r:
-                if r.status != 200:
-                    return None
+                if r.status != 200: return None
                 return await r.json()
                 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     res_data = loop.run_until_complete(fetch())
-    
-    if not res_data:
-        return jsonify({"error": "Failed to fetch data from TMDB"}), 400
+    if not res_data: return jsonify({"error": "Failed to fetch data"}), 400
         
     title = res_data.get('title') if not is_tv else res_data.get('name')
-    release_date = res_data.get('release_date') if not is_tv else res_data.get('first_air_date')
-    year = release_date.split('-')[0] if release_date else 'N/A'
+    release = res_data.get('release_date') if not is_tv else res_data.get('first_air_date')
+    year = release.split('-')[0] if release else 'N/A'
     rating = f"{res_data.get('vote_average'):.1f}/10" if res_data.get('vote_average') else 'N/A'
     genres = ", ".join([g['name'] for g in res_data.get('genres', [])])
     poster = f"https://image.tmdb.org/t/p/w500{res_data.get('poster_path')}" if res_data.get('poster_path') else 'https://via.placeholder.com/300x450'
     backdrop = f"https://image.tmdb.org/t/p/original{res_data.get('backdrop_path')}" if res_data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
     plot = res_data.get('overview', 'No description available.')
-
-    # স্ক্রিনশট ফিল্টারিং
     backdrops = res_data.get('images', {}).get('backdrops', [])
     screenshots = [f"https://image.tmdb.org/t/p/w780{bg.get('file_path')}" for bg in backdrops[:4] if bg.get('file_path')]
 
     return jsonify({
-        "title": f"{title} ({year})",
-        "poster": poster,
-        "backdrop": backdrop,
-        "rating": rating,
-        "genres": genres,
-        "plot": plot,
-        "screenshots": screenshots
+        "title": f"{title} ({year})", "poster": poster, "backdrop": backdrop,
+        "rating": rating, "genres": genres, "plot": plot, "screenshots": screenshots
     })
 
 
 # ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
-
-@web_app.route('/')
-def home():
-    return "BD Movie Zone API & Bot Server is active!"
 
 @web_app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -199,7 +234,24 @@ def admin_dashboard():
     if not session.get('admin_logged_in'):
         return redirect(url_for('admin_login'))
     movies = load_movies_db()
-    return render_template_string(DASHBOARD_HTML, movies=movies)
+    settings = load_settings()
+    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings)
+
+@web_app.route('/admin/save-settings', methods=['POST'])
+def admin_save_settings():
+    if not session.get('admin_logged_in'):
+        return redirect(url_for('admin_login'))
+    links_raw = request.form.get('direct_links', '')
+    links_list = [l.strip() for l in links_raw.split('\n') if l.strip().startswith('http')]
+    
+    settings = {
+        'direct_links': links_list,
+        'revenue_share': int(request.form.get('revenue_share', 20))
+    }
+    save_settings(settings)
+    global system_settings
+    system_settings = settings
+    return redirect(url_for('admin_dashboard'))
 
 @web_app.route('/admin/edit/<movie_id>', methods=['GET', 'POST'])
 def edit_movie(movie_id):
@@ -219,7 +271,6 @@ def edit_movie(movie_id):
         movie['movie_data']['lang'] = request.form.get('lang')
         movie['movie_data']['genres'] = request.form.get('genres')
         movie['movie_data']['plot'] = request.form.get('plot')
-        
         screens = request.form.get('screenshots', '').split('\n')
         movie['movie_data']['screenshots'] = [s.strip() for s in screens if s.strip()]
         
@@ -243,7 +294,6 @@ def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
 
-# Flask সার্ভার রান করার ফাংশন
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
@@ -300,7 +350,6 @@ async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক ডিকোড করা
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -311,7 +360,7 @@ async def handle_start(client, message):
                 sent_warning = await client.send_message(chat_id, warning_text)
                 asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg_id.id, sent_warning.id], AUTO_DELETE_DELAY))
             except Exception as e:
-                await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না: {e}")
+                await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
     user_states[chat_id] = {}
@@ -392,7 +441,6 @@ async def handle_all_messages(client, message):
 
     if state == 'waiting_for_search' and message.text:
         text_input = message.text.strip()
-        # TMDB লিঙ্ক পার্স করা
         if "themoviedb.org" in text_input:
             match = re.search(r"/(movie|tv)/(\d+)", text_input)
             if match:
@@ -400,7 +448,6 @@ async def handle_all_messages(client, message):
                 await fetch_tmdb_details(client, chat_id, match.group(2), is_tv)
                 return
 
-        # সাধারণ সার্চ কুয়েরি
         is_tv_str = "tv" if p_type == "series" else "movie"
         url = f"https://api.themoviedb.org/3/search/{is_tv_str}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(text_input)}"
         async with http_session.get(url) as r:
@@ -447,7 +494,6 @@ async def handle_all_messages(client, message):
         elif state == 'waiting_for_1080p':
             user_states[chat_id]['dl_1080_key'] = file_msg_id
             
-            # ডাটাবেজে ফাইনাল পোস্ট ডাটা সেভ
             m_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(12))
             movie_post_data = {
                 "type": "movie",
@@ -461,10 +507,8 @@ async def handle_all_messages(client, message):
             }
             save_movie_to_db(m_id, movie_post_data)
             
-            app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
-            await client.send_message(chat_id, f"🎉 **মুভিটি সফলভাবে ডাটাবেজে পাবলিশ হয়েছে!**\n\n"
-                                              f"🔗 আপনার blogger হোমপেজে এটি স্বয়ংক্রিয়ভাবে লাইভ হয়ে গেছে।\n"
-                                              f"🛠️ কোনো ভুল সংশোধন করতে অ্যাডমিন প্যানেলে যান।")
+            await client.send_message(chat_id, f"🎉 **মুভিটি সফলভাবে সেভ ও ব্লগে লাইভ হয়েছে!**\n\n"
+                                              f"🔗 একই নামের মুভি হলে আগের পোস্টটির নিচে নতুন কোয়ালিটি লিংক মার্জ হয়েছে।")
             user_states[chat_id] = {}
 
     # --- ওয়েব সিরিজ ফাইল রিসিভ ---
@@ -518,19 +562,15 @@ async def publish_series_callback(client, callback_query):
         "status": "published"
     }
     save_movie_to_db(m_id, series_post_data)
-    await callback_query.edit_message_text(f"🎉 **সিরিজটি সফলভাবে পাবলিশ হয়েছে!**\n\nএটি ব্লগার সাইটে লাইভ হয়ে গেছে।")
+    await callback_query.edit_message_text(f"🎉 **সিরিজটি সফলভাবে পাবলিশ ও মার্জ হয়েছে!**\n\nএটি লাইভ হয়ে গেছে।")
     user_states[chat_id] = {}
 
-# মেসেজ ডিলিট ডিলে এসিঙ্ক ফাংশন
 async def delete_messages_after_delay(chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
-        try:
-            await app.delete_messages(chat_id, msg_id)
-        except Exception:
-            pass
+        try: await app.delete_messages(chat_id, msg_id)
+        except Exception: pass
 
-# ল্যাঙ্গুয়েজ সিলেক্টর UI
 async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা সিলেক্ট করুন:"):
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
@@ -579,6 +619,7 @@ DASHBOARD_HTML = """
         body { background-color: #0b0f19; color: #fff; padding-top: 30px; }
         .table { background: #151f32; color: #fff; border-radius: 8px; overflow: hidden; }
         .btn-edit { background: #0dcaf0; color: #000; }
+        .card { background: #151f32; border: 1px solid rgba(255,255,255,0.1); color: #fff; }
     </style>
 </head>
 <body>
@@ -588,8 +629,23 @@ DASHBOARD_HTML = """
             <a href="/admin/logout" class="btn btn-danger">লগআউট</a>
         </div>
         
+        <div class="card p-4 mb-4 shadow">
+            <h5 class="text-warning mb-3">🔗 আনলিমিটেড ডিরেক্ট লিংক রোটেশন ম্যানেজার (স্প্যাম প্রোটেকশন)</h5>
+            <form action="/admin/save-settings" method="POST">
+                <div class="mb-3">
+                    <label class="form-label">ডিরেক্ট লিঙ্কসমূহ (প্রতি লাইনে একটি করে লিংক দিন):</label>
+                    <textarea name="direct_links" class="form-control bg-dark text-white" rows="5" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
+                    <small class="text-muted">বাটনে ক্লিক করার সময় প্রতিবার এই লিস্ট থেকে একটি র্যান্ডম ডিরেক্ট অ্যাড লিঙ্ক ওপেন হবে।</small>
+                </div>
+                <div class="mb-3" style="display:none;">
+                    <input type="hidden" name="revenue_share" value="{{settings.revenue_share}}">
+                </div>
+                <button type="submit" class="btn btn-warning text-dark font-weight-bold">ডিরেক্ট লিংক ডেটাবেজ আপডেট করুন</button>
+            </form>
+        </div>
+
         <div class="mb-3">
-            <input type="text" id="searchBox" class="form-control" placeholder="সার্চ মুভি বা সিরিজ...">
+            <input type="text" id="searchBox" class="form-control bg-dark text-white" placeholder="সার্চ মুভি বা সিরিজ...">
         </div>
 
         <table class="table table-bordered align-middle">
@@ -648,12 +704,10 @@ EDIT_HTML = """
     <div class="container" style="max-width: 800px;">
         <h3 class="text-info mb-4">🛠️ এডিট ও TMDB ইনস্ট্যান্ট সিঙ্ক্রোনাইজার</h3>
         
-        <!-- TMDB কুইক সিঙ্ক টুল -->
         <div class="form-card mb-4" style="background-color: #1a263d;">
             <h5 class="text-warning">⚡ TMDB অটোমেটিক সিঙ্ক টুল</h5>
-            <p class="text-muted small">ভুল পোস্টার বা বিবরণ সংশোধন করতে এখানে সঠিক TMDB ID বা লিঙ্ক বসিয়ে "Sync & Autofill" চাপুন:</p>
             <div class="input-group">
-                <input type="text" id="tmdbInput" class="form-control" placeholder="উদা: 550 বা https://www.themoviedb.org/movie/550">
+                <input type="text" id="tmdbInput" class="form-control" placeholder="উদা: 550 বা TMDB লিঙ্ক">
                 <button type="button" id="syncBtn" class="btn btn-warning">Sync & Autofill</button>
             </div>
             <div id="syncStatus" class="mt-2 small text-info"></div>
@@ -666,11 +720,11 @@ EDIT_HTML = """
             </div>
             <div class="row">
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">পোস্টার ইমেজ লিঙ্ক (Portrait Poster):</label>
+                    <label class="form-label">পোস্টার ইমেজ লিঙ্ক:</label>
                     <input type="text" name="poster" id="formPoster" class="form-control" value="{{movie.movie_data.poster}}">
                 </div>
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">ব্যানার ইমেজ লিঙ্ক (Landscape Backdrop):</label>
+                    <label class="form-label">ব্যানার ইমেজ লিঙ্ক:</label>
                     <input type="text" name="backdrop" id="formBackdrop" class="form-control" value="{{movie.movie_data.backdrop}}">
                 </div>
             </div>
@@ -680,11 +734,11 @@ EDIT_HTML = """
                     <input type="text" name="rating" id="formRating" class="form-control" value="{{movie.movie_data.rating}}">
                 </div>
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">ভাষা (Language):</label>
+                    <label class="form-label">ভাষা:</label>
                     <input type="text" name="lang" id="formLang" class="form-control" value="{{movie.movie_data.lang}}">
                 </div>
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">জনরা (Genres):</label>
+                    <label class="form-label">জনরা:</label>
                     <input type="text" name="genres" id="formGenres" class="form-control" value="{{movie.movie_data.genres}}">
                 </div>
             </div>
@@ -695,11 +749,11 @@ EDIT_HTML = """
             </div>
             {% endif %}
             <div class="mb-3">
-                <label class="form-label">কাহিনী সংক্ষেপ (Storyline):</label>
+                <label class="form-label">কাহিনী সংক্ষেপ:</label>
                 <textarea name="plot" id="formPlot" class="form-control" rows="4">{{movie.movie_data.plot}}</textarea>
             </div>
             <div class="mb-4">
-                <label class="form-label">স্ক্রিনশটস (প্রতি লাইনে একটি লিঙ্ক):</label>
+                <label class="form-label">স্ক্রিনশটস:</label>
                 <textarea name="screenshots" id="formScreens" class="form-control" rows="4">{% for s in movie.movie_data.screenshots %}{{s}}&#10;{% endfor %}</textarea>
             </div>
 
@@ -713,8 +767,7 @@ EDIT_HTML = """
     <script>
         document.getElementById('syncBtn').addEventListener('click', function() {
             let val = document.getElementById('tmdbInput').value.trim();
-            if(!val) { alert("অনুগ্রহ করে একটি TMDB লিঙ্ক বা আইডি দিন!"); return; }
-            
+            if(!val) { alert("TMDB লিঙ্ক বা আইডি দিন!"); return; }
             let statusDiv = document.getElementById('syncStatus');
             statusDiv.innerHTML = "⏳ তথ্য সংগ্রহ করা হচ্ছে...";
             
@@ -737,37 +790,12 @@ EDIT_HTML = """
                     document.getElementById('formRating').value = data.rating;
                     document.getElementById('formGenres').value = data.genres;
                     document.getElementById('formPlot').value = data.plot;
-                    
-                    if(data.screenshots) {
-                        document.getElementById('formScreens').value = data.screenshots.join('\\n');
-                    }
-                    statusDiv.innerHTML = "✅ সঠিক তথ্য সাফল্যের সাথে অটোফিল করা হয়েছে! নিচের 'সংরক্ষণ করুন' বাটনে ক্লিক করুন।";
+                    if(data.screenshots) document.getElementById('formScreens').value = data.screenshots.join('\\n');
+                    statusDiv.innerHTML = "✅ সঠিক তথ্য অটোফিল হয়েছে! নিচের 'সংরক্ষণ করুন' বাটন চাপুন।";
                 }
             })
-            .catch(err => {
-                statusDiv.innerHTML = "❌ কানেকশন এরর!";
-            });
+            .catch(err => { statusDiv.innerHTML = "❌ কানেকশন এরর!"; });
         });
-    </script>
-</body>
-</html>
-"""
-
-COPY_CODE_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Code Export - BD Movie Zone</title>
-</head>
-<body style="background: #090e17; color: #eee; font-family: sans-serif; text-align: center; padding-top: 50px;">
-    <h2>BD Movie Zone HTML Export</h2>
-    <button onclick="copyCode()" style="padding: 10px 20px; background: #00bcd4; border: none; border-radius: 4px; color: #fff; font-size: 16px; cursor: pointer;">Copy Code</button>
-    <pre style="text-align: left; background: #111; padding: 20px; max-width: 800px; margin: 20px auto; overflow: auto; height: 350px;"><code id="cd">{{escaped_html}}</code></pre>
-    <script>
-        function copyCode() {
-            navigator.clipboard.writeText(document.getElementById('cd').innerText);
-            alert("Copied!");
-        }
     </script>
 </body>
 </html>
