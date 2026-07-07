@@ -97,51 +97,61 @@ def load_movies_db():
 
 def save_movie_to_db(movie_id, data):
     movies = load_movies_db()
-    existing_movie = None
-    
-    # টাইটেল চেক করে আগের পোস্ট খোঁজা
-    for m in movies:
-        if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
-            existing_movie = m
-            break
-            
-    # টাইমস্ট্যাম্প যুক্ত করা যাতে নতুন আপডেট হওয়া পোস্ট সবার ওপরে চলে যায়
     current_time = time.time()
-            
-    if existing_movie:
-        # আগের মুভি পাওয়া গেছে, কোয়ালিটি লিংকগুলো মার্জ করুন
-        if data['type'] == 'movie':
-            for quality, link in data['dl_links'].items():
-                if link:
-                    existing_movie['dl_links'][quality] = link
-        else:
-            existing_ep_names = [ep['name'] for ep in existing_movie['episodes']]
-            for ep in data['episodes']:
-                if ep['name'] not in existing_ep_names:
-                    existing_movie['episodes'].append(ep)
-                    
-        existing_movie['updated_at'] = current_time # সর্বশেষ আপডেটের সময় আপডেট
-        
-        if db_mongo is not None:
-            try:
-                db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie})
-                return
-            except Exception:
-                pass
-        
-        movies = [m for m in movies if m.get('_id') != existing_movie['_id']]
-        movies.append(existing_movie)
-    else:
-        # একদম নতুন পোস্ট
-        data['_id'] = movie_id
-        data['updated_at'] = current_time
+    data['updated_at'] = current_time
+
+    # ১. প্রথমে আইডি দিয়ে চেক করা হবে (এডিটের ক্ষেত্রে এটি ডুপ্লিকেট হওয়া রোধ করবে)
+    existing_by_id_index = -1
+    for i, m in enumerate(movies):
+        if m.get('_id') == movie_id:
+            existing_by_id_index = i
+            break
+
+    if existing_by_id_index != -1:
+        # এটি একটি এডিট করা পোস্ট, আগের ডেটা সম্পূর্ণ রিপ্লেস করা হবে
+        movies[existing_by_id_index] = data
         if db_mongo is not None:
             try:
                 db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-                return
             except Exception:
                 pass
-        movies.append(data)
+    else:
+        # ২. নতুন পোস্টের ক্ষেত্রে টাইটেল দিয়ে চেক করে কোয়ালিটি লিংক মার্জ করা হবে
+        existing_by_title_index = -1
+        for i, m in enumerate(movies):
+            if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
+                existing_by_title_index = i
+                break
+
+        if existing_by_title_index != -1:
+            existing_movie = movies[existing_by_title_index]
+            if data['type'] == 'movie':
+                for quality, link in data['dl_links'].items():
+                    if link:
+                        existing_movie['dl_links'][quality] = link
+            else:
+                existing_ep_names = [ep['name'] for ep in existing_movie.get('episodes', [])]
+                for ep in data.get('episodes', []):
+                    if ep['name'] not in existing_ep_names:
+                        existing_movie.setdefault('episodes', []).append(ep)
+            
+            existing_movie['updated_at'] = current_time
+            movies[existing_by_title_index] = existing_movie
+
+            if db_mongo is not None:
+                try:
+                    db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie}, upsert=True)
+                except Exception:
+                    pass
+        else:
+            # একদম নতুন টাইটেলের পোস্ট
+            data['_id'] = movie_id
+            movies.append(data)
+            if db_mongo is not None:
+                try:
+                    db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
+                except Exception:
+                    pass
         
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
@@ -172,7 +182,6 @@ def add_cors_headers(response):
 @web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
 def get_all_movies_api():
     movies = load_movies_db()
-    # সর্বশেষ আপডেটেড পোস্টগুলো সবার উপরে রাখতে সর্টিং (updated_at desc)
     movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
     return jsonify(movies)
 
@@ -276,7 +285,7 @@ def admin_dashboard():
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
     movies = load_movies_db()
-    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) # ড্যাশবোর্ডেও লেটেস্ট সবার উপরে
+    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) 
     settings = load_settings()
     return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, prefix=PREFIX)
 
@@ -290,7 +299,7 @@ def admin_save_settings():
     settings = {
         'direct_links': links_list,
         'revenue_share': int(request.form.get('revenue_share', 20)),
-        'download_timer': int(request.form.get('download_timer', 5))  # টাইমার ডাটা সেভ
+        'download_timer': int(request.form.get('download_timer', 5))  
     }
     save_settings(settings)
     global system_settings
@@ -322,7 +331,6 @@ def edit_movie(movie_id):
         if movie.get('type') == 'series':
             movie['season'] = request.form.get('season')
             
-        movie['updated_at'] = time.time()  # এডিট করলেও পোস্ট সবার ওপরে চলে যাবে
         save_movie_to_db(movie_id, movie)
         return redirect(f"{PREFIX}/admin")
         
@@ -351,31 +359,49 @@ def run_web_server():
 
 app = Client("movie_post_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ফাইল ক্যাপশন বা নাম পরিষ্কার করার ফাংশন
+# বুদ্ধিমান ফাইল নাম ক্লিনার (অটোমেটিক অপ্রয়োজনীয় ট্যাগ ও সাইট মুছে ফেলার জন্য)
 def clean_movie_filename(filename):
-    name = os.path.splitext(filename)[0]
-    name = re.sub(r'[\._\-]', ' ', name)
+    name, _ = os.path.splitext(filename)
+    
+    # ১. বিভিন্ন ব্র্যাকেটের ভেতরের অপ্রয়োজনীয় গ্রুপ ট্যাগ মুছে ফেলা
     name = re.sub(r'\[.*?\]', ' ', name)
     name = re.sub(r'\(.*?\)', ' ', name)
     
-    junk_patterns = [
-        r'\b(480p|720p|1080p|2160p|4k|hd|sd|web[- ]?dl|bluray|brrip|dvdrip|hdtv|hdtc|hc)\b',
-        r'\b(x264|x265|h264|h265|hevc|10bit|aac|dd5\.1|ac3|mp3|dual[- ]audio|multi[- ]audio|hindi|bangla|english|bengali|esub|sub)\b',
-        r'\b(yts|yify|psa|pahe|galaxyrg|megusta|tigole|silas|qxr|vxt|rarbg|extratorrent)\b',
-        r'\b(nf|netflix|dsnp|amzn|amazon|hmax|hbomax|apple[- ]?tv)\b'
-    ]
-    for pattern in junk_patterns:
-        name = re.sub(pattern, ' ', name, flags=re.IGNORECASE)
+    # ২. ডোমেইন ও ওয়েবসাইটের নামগুলো মুছে ফেলা
+    name = re.sub(r'\b[\w\-]+\.(com|net|org|app|cc|in|xyz|vip|ws|info|live|co|club|to|co\.in)\b', ' ', name, flags=re.IGNORECASE)
+    name = re.sub(r'\b(bdmoviezone|vegamovies|katmoviehd|bolly4u|9xmovies|extramovies|worldfree4u|yts|yify|psa|pahe|galaxyrg|megusta|tigole|qxr|vxt|rarbg|extratorrent)\b', ' ', name, flags=re.IGNORECASE)
+    
+    # ৩. ডট, ড্যাশ, আন্ডারস্কোর ইত্যাদির জায়গায় স্পেস বসানো
+    name = re.sub(r'[\._\-+]', ' ', name)
+    
+    # ৪. রিলিজ বছর (Year) খোঁজা ও সেটিকে আলাদা করা
+    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
+    year = None
+    if year_match:
+        year = year_match.group(1)
+        year_idx = name.find(year)
+        name = name[:year_idx] # বছরের পর অংশ সম্পূর্ণ বাদ দেওয়া হচ্ছে
         
+    # ৫. প্রথম কোনো টেকনিক্যাল শব্দ পাওয়া গেলে সেখান থেকেই লেখা কেটে ফেলা (সবচেয়ে কার্যকরী সমাধান)
+    technical_keywords = [
+        r'\b480p\b', r'\b720p\b', r'\b1080p\b', r'\b2160p\b', r'\b4k\b',
+        r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
+        r'\bdual[- ]?audio\b', r'\bmulti[- ]?audio\b', r'\benglish\b', r'\bhindi\b', r'\bbangla\b', r'\bbengali\b', r'\btamil\b', r'\btelugu\b', r'\bmalayalam\b', r'\bkannada\b',
+        r'\bhin\b', r'\beng\b', r'\bben\b', r'\besub\b', r'\bsub\b', r'\bsubtitles\b', r'\bhevc\b', r'\bx264\b', r'\bx265\b', r'\bh264\b', r'\bh265\b', r'\b10bit\b', r'\baac\b',
+        r'\bdd5\b', r'\bac3\b', r'\bmp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
+    ]
+    
+    earliest_idx = len(name)
+    for keyword in technical_keywords:
+        match = re.search(keyword, name, flags=re.IGNORECASE)
+        if match:
+            if match.start() < earliest_idx:
+                earliest_idx = match.start()
+                
+    name = name[:earliest_idx]
     name = re.sub(r'\s+', ' ', name).strip()
     
-    year_match = re.search(r'\b(19|20)\d{2}\b', name)
-    if year_match:
-        year_idx = name.find(year_match.group(0))
-        name_before_year = name[:year_idx].strip()
-        if len(name_before_year) > 2:
-            return name_before_year + " " + year_match.group(0)
-    return name
+    return name, year
 
 # অটোমেটিক কোয়ালিটি ডিটেকশন
 def detect_file_quality(filename):
@@ -420,7 +446,6 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
-    # অ্যাডমিন প্যানেল এবং লাইভ সাইট বাটন
     admin_btn = []
     if chat_id == OWNER_ID:
         admin_btn = [
@@ -455,12 +480,16 @@ async def auto_file_poster_handler(client, message):
         filename = message.caption if message.caption else "Unknown Movie"
         
     status_msg = await message.reply_text("⏳ **ফাইল ডিটেক্ট করা হয়েছে! নাম পরিষ্কার করা হচ্ছে...**")
-    cleaned_title = clean_movie_filename(filename)
+    cleaned_title, release_year = clean_movie_filename(filename)
     detected_quality = detect_file_quality(filename)
     
     await status_msg.edit_text(f"🔍 **মুভির নাম:** `{cleaned_title}`\n💿 **কোয়ালিটি:** `{detected_quality}`\n\n⏳ TMDB ডাটাবেজে সার্চ করা হচ্ছে...")
     
+    # TMDB সার্চ কুয়েরি তৈরি করা হচ্ছে (বছরের ফিল্টার সহ)
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
+    if release_year:
+        url += f"&year={release_year}"
+        
     movie_meta = None
     
     async with aiohttp.ClientSession() as session:
@@ -468,6 +497,15 @@ async def auto_file_poster_handler(client, message):
             if resp.status == 200:
                 res_json = await resp.json()
                 results = res_json.get('results', [])
+                
+                # রিলিজ বছর দিয়ে রেজাল্ট না পাওয়া গেলে, শুধুমাত্র টাইটেল দিয়ে পুনরায় ট্রাই করার ফলব্যাক ব্যবস্থা
+                if not results and release_year:
+                    fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
+                    async with session.get(fallback_url) as fb_resp:
+                        if fb_resp.status == 200:
+                            fb_json = await fb_resp.json()
+                            results = fb_json.get('results', [])
+                            
                 if results:
                     top_result = results[0]
                     m_id = top_result['id']
@@ -475,12 +513,14 @@ async def auto_file_poster_handler(client, message):
                     async with session.get(detail_url) as d_resp:
                         if d_resp.status == 200:
                             details = await d_resp.json()
-                            release_year = details.get('release_date', 'N/A').split('-')[0]
-                            title_with_year = f"{details.get('title')} ({release_year})"
+                            actual_year = details.get('release_date', 'N/A').split('-')[0]
+                            title_with_year = f"{details.get('title')} ({actual_year})"
                             rating = f"{details.get('vote_average'):.1f}/10" if details.get('vote_average') else 'N/A'
                             genres = ", ".join([g['name'] for g in details.get('genres', [])])
-                            poster = f"https://image.tmdb.org/t/p/w500{res_data.get('poster_path')}" if res_data.get('poster_path') else 'https://via.placeholder.com/300x450'
-                            backdrop = f"https://image.tmdb.org/t/p/original{res_data.get('backdrop_path')}" if res_data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
+                            
+                            # এখানে পূর্বে 'res_data' ছিল যা ক্র্যাশ করত। এখন এটি সঠিকভাবে 'details' করা হয়েছে।
+                            poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else 'https://via.placeholder.com/300x450'
+                            backdrop = f"https://image.tmdb.org/t/p/original{details.get('backdrop_path')}" if details.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
                             plot = details.get('overview', 'No description available.')
                             backdrops = details.get('images', {}).get('backdrops', [])
                             screenshots = [f"https://image.tmdb.org/t/p/w780{bg.get('file_path')}" for bg in backdrops[:4] if bg.get('file_path')]
@@ -492,8 +532,9 @@ async def auto_file_poster_handler(client, message):
                             }
 
     if not movie_meta:
+        # TMDB-তে খুঁজে না পাওয়া গেলে সাধারণ টেমপ্লেট
         movie_meta = {
-            'title': cleaned_title,
+            'title': f"{cleaned_title} ({release_year})" if release_year else cleaned_title,
             'poster': 'https://via.placeholder.com/300x450?text=No+Poster+Found',
             'backdrop': 'https://via.placeholder.com/1280x720?text=No+Backdrop',
             'rating': 'N/A', 'genres': 'Movie', 'plot': 'No synopsis fetched. You can update this using the Admin Sync tool.',
@@ -550,7 +591,7 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception: pass
 
 
-# ==================== এডমিন প্যানেল HTML টেমপ্লেটস (১০০% রেসপন্সিভ মোবাইল ফ্রেন্ডলি থিম) ====================
+# ==================== এডমিন প্যানেল HTML টেমপ্লেটস ====================
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -738,7 +779,6 @@ EDIT_HTML = """
         .btn-success { background: linear-gradient(135deg, #059669, #10b981); border: none; font-weight: bold; border-radius: 10px; padding: 14px; }
         .btn-secondary { background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; padding: 14px; }
         
-        /* সার্চ সাজেশনের নতুন মোবাইল ফ্রেন্ডলি থিম */
         .live-search-container { background: #121520; border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
         .search-results-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; }
         .search-result-item { width: 100px; flex-shrink: 0; cursor: pointer; text-align: center; }
@@ -751,7 +791,6 @@ EDIT_HTML = """
     <div class="container">
         <h4 class="text-info mb-3" style="font-weight: 800;">🛠️ এডিট ও ল্যাঙ্গুয়েজ আপডেট</h4>
         
-        <!-- ডাইনামিক লাইভ সার্চ কন্টেইনার (হট-ফিক্সার) -->
         <div class="live-search-container">
             <h6 class="text-warning mb-2" style="font-weight: 800;">🔍 TMDB ইনস্ট্যান্ট কুইক সার্চ এডিটর</h6>
             <p class="text-muted small">মুভিটির সঠিক নাম লিখে "অনুসন্ধান" করুন এবং সঠিক পোস্টারটির উপর টাচ করলেই সব ডেটা পরিবর্তন হয়ে যাবে:</p>
@@ -760,7 +799,6 @@ EDIT_HTML = """
                 <button type="button" id="liveSearchBtn" class="btn btn-warning text-dark font-weight-bold">অনুসন্ধান</button>
             </div>
             
-            <!-- রেজাল্ট গ্যালারি -->
             <div id="liveSearchResults" class="search-results-grid" style="display: none;"></div>
         </div>
 
@@ -812,7 +850,6 @@ EDIT_HTML = """
     </div>
 
     <script>
-        // লাইভ সার্চ ইঞ্জিন লজিক
         document.getElementById('liveSearchBtn').addEventListener('click', function() {
             let query = document.getElementById('liveSearchQuery').value.trim();
             if(!query) { alert("সার্চ করতে মুভির নাম লিখুন!"); return; }
@@ -855,7 +892,6 @@ EDIT_HTML = """
             });
         });
 
-        // ওয়ান-ক্লিক অটো-ফিল লজিক
         function autofillWithTmdId(id) {
             let resultContainer = document.getElementById('liveSearchResults');
             resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে ১ সেকেন্ড অপেক্ষা করুন...</div>";
@@ -881,7 +917,6 @@ EDIT_HTML = """
                     document.getElementById('formPlot').value = data.plot;
                     if(data.screenshots) document.getElementById('formScreens').value = data.screenshots.join('\\n');
                     
-                    // সাকসেস মেসেজ ও ক্লোজ
                     resultContainer.style.display = "none";
                     alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
                 }
