@@ -54,7 +54,7 @@ if MONGO_URI:
 # --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
 def load_settings():
     default_settings = {
-        'direct_links': ["https://omg10.com/4/11047054"],
+        'direct_links': [""],
         'revenue_share': 20,
         'download_timer': 5,
         'blogger_url': MAIN_WEBSITE_URL,
@@ -1067,9 +1067,9 @@ EDIT_HTML = """
         
         <div class="live-search-container">
             <h6 class="text-warning mb-2" style="font-weight: 800;">🔍 TMDB ইনস্ট্যান্ট কুইক সার্চ এডিটর</h6>
-            <p class="text-muted small">মুভিটির সঠিক নাম লিখে "অনুসন্ধান" করুন এবং সঠিক পোস্টারটির উপর টাচ করলেই সব ডেটা পরিবর্তন হয়ে যাবে:</p>
+            <p class="text-muted small">মুভির নাম, TMDB ID অথবা TMDB লিংক দিয়ে "অনুসন্ধান" বোতামে চাপুন। আইডি বা লিংক দিলে সরাসরি আপডেট হয়ে যাবে:</p>
             <div class="input-group mb-3">
-                <input type="text" id="liveSearchQuery" class="form-control bg-dark text-white border-secondary" placeholder="মুভির নাম লিখুন...">
+                <input type="text" id="liveSearchQuery" class="form-control bg-dark text-white border-secondary" placeholder="মুভির নাম, আইডি বা লিংক দিন...">
                 <button type="button" id="liveSearchBtn" class="btn btn-warning text-dark font-weight-bold">অনুসন্ধান</button>
             </div>
             
@@ -1124,37 +1124,143 @@ EDIT_HTML = """
     </div>
 
     <script>
-        // Autofill logic ...
-        function autofillWithTmdId(id) {
+        document.getElementById('liveSearchBtn').addEventListener('click', performTmdSearch);
+        document.getElementById('liveSearchQuery').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                performTmdSearch();
+            }
+        });
+
+        function performTmdSearch() {
+            let input = document.getElementById('liveSearchQuery').value.trim();
+            if (!input) {
+                alert("অনুগ্রহ করে মুভি বা সিরিজের নাম, TMDB ID অথবা TMDB লিংক দিন!");
+                return;
+            }
+
             let resultContainer = document.getElementById('liveSearchResults');
-            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে ১ সেকেন্ড অপেক্ষা করুন...</div>";
+            resultContainer.style.display = "flex";
+
+            // আইডি বা লিংক ডিটেক্ট করার জন্য চেক
+            let isUrl = input.includes("themoviedb.org");
+            let isOnlyNumber = /^\d+$/.test(input);
+
+            if (isUrl || isOnlyNumber) {
+                resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
+                
+                let isTv = {% if movie.type == 'series' %}true{% else %}false{% endif %};
+                if (isUrl) {
+                    if (input.includes("/tv/")) {
+                        isTv = true;
+                    } else if (input.includes("/movie/")) {
+                        isTv = false;
+                    }
+                }
+
+                fetch('{{prefix}}/api/tmdb-fetch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tmdb_input: input,
+                        is_tv: isTv
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ ডাটা সিঙ্ক ব্যর্থ হয়েছে! লিংক বা আইডি সঠিক কিনা যাচাই করুন।</div>";
+                    } else {
+                        autofillForm(data);
+                        resultContainer.style.display = "none";
+                        alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার নিচে থাকা 'সংরক্ষণ করুন' বাটন চাপুন।");
+                    }
+                })
+                .catch(err => {
+                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ কানেকশন এরর!</div>";
+                });
+                return;
+            }
+
+            // সাধারণ টেক্সট সার্চ
+            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ অনুসন্ধান করা হচ্ছে...</div>";
+
+            fetch('{{prefix}}/api/tmdb-search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: input,
+                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
+                })
+            })
+            .then(res => res.json())
+            .then(results => {
+                if (!results || results.length === 0) {
+                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ কোনো ফলাফল পাওয়া যায়নি!</div>";
+                    return;
+                }
+
+                resultContainer.innerHTML = "";
+                results.forEach(item => {
+                    let id = item.id;
+                    let title = item.title || item.name;
+                    let release = item.release_date || item.first_air_date || '';
+                    let year = release ? release.split('-')[0] : 'N/A';
+                    let posterPath = item.poster_path ? 'https://image.tmdb.org/t/p/w185' + item.poster_path : 'https://via.placeholder.com/100x140?text=No+Poster';
+
+                    let itemIsTv = {% if movie.type == 'series' %}true{% else %}false{% endif %};
+
+                    let div = document.createElement('div');
+                    div.className = "search-result-item";
+                    div.innerHTML = `
+                        <img src="${posterPath}" alt="${title}" onclick="autofillWithTmdId('${id}', ${itemIsTv})">
+                        <div class="search-result-title">${title} (${year})</div>
+                    `;
+                    resultContainer.appendChild(div);
+                });
+            })
+            .catch(err => {
+                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ অনুসন্ধান ব্যর্থ হয়েছে!</div>";
+            });
+        }
+
+        function autofillWithTmdId(id, isTv) {
+            let resultContainer = document.getElementById('liveSearchResults');
+            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন...</div>";
             
             fetch('{{prefix}}/api/tmdb-fetch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     tmdb_input: id,
-                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
+                    is_tv: isTv
                 })
             })
             .then(res => res.json())
             .then(data => {
-                if(data.error) {
+                if (data.error) {
                     alert("ডাটা সিঙ্ক ব্যর্থ হয়েছে!");
                 } else {
-                    document.getElementById('formTitle').value = data.title;
-                    document.getElementById('formPoster').value = data.poster;
-                    document.getElementById('formBackdrop').value = data.backdrop;
-                    document.getElementById('formRating').value = data.rating;
-                    document.getElementById('formGenres').value = data.genres;
-                    document.getElementById('formPlot').value = data.plot;
-                    if(data.screenshots) document.getElementById('formScreens').value = data.screenshots.join('\\n');
-                    
+                    autofillForm(data);
                     resultContainer.style.display = "none";
                     alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
                 }
             })
             .catch(err => { alert("কানেকশন এরর!"); });
+        }
+
+        function autofillForm(data) {
+            document.getElementById('formTitle').value = data.title || "";
+            document.getElementById('formPoster').value = data.poster || "";
+            document.getElementById('formBackdrop').value = data.backdrop || "";
+            document.getElementById('formRating').value = data.rating || "";
+            document.getElementById('formGenres').value = data.genres || "";
+            document.getElementById('formPlot').value = data.plot || "";
+            if (data.screenshots) {
+                document.getElementById('formScreens').value = data.screenshots.join('\\n');
+            } else {
+                document.getElementById('formScreens').value = "";
+            }
         }
     </script>
 </body>
