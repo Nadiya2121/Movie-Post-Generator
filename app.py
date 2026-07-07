@@ -8,7 +8,8 @@ import re
 import html
 import time
 import urllib.parse
-import requests  # থ্রেড-সেফ রিমোট এপিআই কুয়েরির জন্য
+import requests  # সিনক্রোনাস এপিআই রিকোয়েস্টের জন্য
+import aiohttp   # বটের সেশন ও ফাইল ট্রান্সফারের জন্য
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -34,8 +35,8 @@ main_loop = None  # টেলিগ্রাম বটের রানিং ই
 web_app = Flask(__name__)
 web_app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey_bdmoviezone')
 
-# --- ডেটাবেজ ইনিশিয়ালাইজেশন ---
-MONGO_URI = os.environ.get('MONGO_URI') 
+# --- ডেটাবেজ ইনিশিয়ালাইজেশন (আপনার দেওয়া মঙ্গোডিবি লিঙ্ক ডিফল্ট করা হয়েছে) ---
+MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://hewabah657:hewabah657@cluster0.k7k7y.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0') 
 mongo_client = None
 db_mongo = None
 
@@ -49,11 +50,8 @@ if MONGO_URI:
     except Exception as e:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
         db_mongo = None
-else:
-    print("⚠️ WARNING: MONGO_URI environment variable is missing! Local JSON is being used.")
-    print("⚠️ If you are hosting on Koyeb, data WILL be deleted on every redeploy/restart. Please connect MongoDB!")
 
-# --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
+# --- সেটিংস লোডার ---
 def load_settings():
     default_settings = {
         'direct_links': ["https://omg10.com/4/11047054"],
@@ -92,7 +90,7 @@ def save_settings(settings):
 
 system_settings = load_settings()
 
-# ইউজার ইউআরএল সেফগার্ড (টেলিগ্রামের BUTTON_URL_INVALID এরর বন্ধ করার জন্য)
+# ইউআরএল প্রোটেকশন ফিল্টার
 def get_website_url():
     settings = load_settings()
     url = settings.get('website_url', '').strip()
@@ -115,7 +113,7 @@ def get_admin_ids():
                 pass
     return list(set(admins))
 
-# টেলিগ্রাম এপিআই রিলেটেড থ্রেড-সেফ ড্রাইভার
+# থ্রেড সেফ অ্যাসিনক্রোনাস ড্রাইভার
 def run_async(coro, timeout=15):
     global main_loop
     if main_loop is None or not main_loop.is_running():
@@ -386,8 +384,12 @@ def post_to_channel(movie_id):
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
     
-    success = run_async(send_movie_to_channel_job(movie_id))
-    
+    try:
+        success = run_async(send_movie_to_channel_job(movie_id))
+    except Exception as e:
+        print(f"Channel Posting Exception: {e}")
+        success = False
+        
     if success:
         return redirect(f"{PREFIX}/admin?posted=success")
     else:
@@ -683,57 +685,6 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
 
 # ==================== এডমিন প্যানেল ও ওয়েবসাইট টেমপ্লেটসমূহ ====================
 
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - BD Movie Zone</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-    <style>
-        body { 
-            background-color: #06070d; 
-            color: #fff; 
-            height: 100vh; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            padding: 20px;
-        }
-        .card { 
-            background: #0f111a; 
-            border: 1px solid rgba(255,255,255,0.08); 
-            width: 100%;
-            max-width: 400px; 
-            border-radius: 16px;
-            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
-        }
-        .btn-info {
-            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-            border: none;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="card p-4 shadow">
-        <h4 class="text-center text-info mb-4" style="font-weight: 800; letter-spacing: 0.5px;">🎬 BD MOVIE ZONE</h4>
-        <p class="text-center text-muted small">কন্ট্রোল ড্যাশবোর্ডে লগইন করুন</p>
-        {% if error %}<div class="alert alert-danger py-2 text-center" style="font-size: 13px;">{{error}}</div>{% endif %}
-        <form method="POST">
-            <div class="mb-3">
-                <label class="form-label text-muted small">অ্যাডমিন পাসওয়ার্ড:</label>
-                <input type="password" name="password" class="form-control bg-dark text-white border-secondary" style="border-radius: 10px; padding: 12px;" required>
-            </div>
-            <button type="submit" class="btn btn-info w-100 text-dark py-3" style="border-radius: 10px;">লগইন করুন</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -808,13 +759,12 @@ DASHBOARD_HTML = """
             <form action="{{prefix}}/admin/save-settings" method="POST">
                 <div class="mb-3">
                     <label class="form-label text-muted small">🌐 আমার ওয়েবসাইট লিংক (Website URL):</label>
-                    <input type="url" name="website_url" class="form-control" value="{{settings.website_url}}" placeholder="উদা: https://mysite.koyeb.app/view/Movie-Post-Generator/" required>
+                    <input type="url" name="website_url" class="form-control" value="{{settings.website_url}}" placeholder="https://site.com" required>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label text-muted small">👥 কন্ট্রোলিং অ্যাডমিন আইডি সমূহ (কমা দিয়ে লিখুন):</label>
-                    <input type="text" name="admin_ids_str" class="form-control" value="{{settings.admin_ids_str}}" placeholder="উদা: 8297458824, 12345678" required>
-                    <small class="text-muted small">এখানে যে টেলিগ্রাম ইউজার আইডিগুলো কমা দিয়ে দেবেন তারা এই বটের এডমিন অ্যাক্সেস পাবেন।</small>
+                    <input type="text" name="admin_ids_str" class="form-control" value="{{settings.admin_ids_str}}" required>
                 </div>
 
                 <div class="mb-3">
@@ -832,9 +782,6 @@ DASHBOARD_HTML = """
                     <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
                 </div>
 
-                <div class="mb-3" style="display:none;">
-                    <input type="hidden" name="revenue_share" value="{{settings.revenue_share}}">
-                </div>
                 <button type="submit" class="btn btn-warning w-100 text-dark py-2" style="border-radius:8px; font-weight: 800; font-size:13px;">আপডেট সেটিংস ও লিংক রোটেশন</button>
             </form>
         </div>
@@ -878,172 +825,6 @@ DASHBOARD_HTML = """
 </html>
 """
 
-EDIT_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Movie - BD Movie Zone</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { background-color: #06070d; color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; padding-top: 20px; padding-bottom: 50px; }
-        .form-card { background: #0f111a; border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.06); }
-        .form-control { background-color: #161824 !important; border-color: rgba(255,255,255,0.08) !important; color: #fff !important; border-radius: 10px; padding: 12px; }
-        .form-label { font-size: 13px; color: #94a3b8; font-weight: bold; margin-bottom: 6px; }
-        .btn-success { background: linear-gradient(135deg, #059669, #10b981); border: none; font-weight: bold; border-radius: 10px; padding: 14px; }
-        .btn-secondary { background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; padding: 14px; }
-        
-        .live-search-container { background: #121520; border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
-        .search-results-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; }
-        .search-result-item { width: 100px; flex-shrink: 0; cursor: pointer; text-align: center; }
-        .search-result-item img { width: 100%; height: 140px; border-radius: 8px; object-fit: cover; border: 1.5px solid rgba(255,255,255,0.1); transition: 0.2s; }
-        .search-result-item img:hover { border-color: #fbbf24; transform: scale(1.05); }
-        .search-result-title { font-size: 10px; color: #cbd5e1; margin-top: 5px; height: 30px; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h4 class="text-info mb-3" style="font-weight: 800;">🛠️ এডিট ও ল্যাঙ্গুয়েজ আপডেট</h4>
-        
-        <div class="live-search-container">
-            <h6 class="text-warning mb-2" style="font-weight: 800;">🔍 TMDB ইনস্ট্যান্ট কুইক সার্চ এডিটর</h6>
-            <p class="text-muted small">মুভিটির সঠিক নাম লিখে "অনুসন্ধান" করুন এবং সঠিক পোস্টারটির উপর টাচ করলেই সব ডেটা পরিবর্তন হয়ে যাবে:</p>
-            <div class="input-group mb-3">
-                <input type="text" id="liveSearchQuery" class="form-control bg-dark text-white border-secondary" placeholder="মুভির নাম লিখুন...">
-                <button type="button" id="liveSearchBtn" class="btn btn-warning text-dark font-weight-bold">অনুসন্ধান</button>
-            </div>
-            
-            <div id="liveSearchResults" class="search-results-grid" style="display: none;"></div>
-        </div>
-
-        <form action="{{prefix}}/admin/edit/{{movie._id}}" method="POST" class="form-card">
-            <div class="mb-3">
-                <label class="form-label">মুভি টাইটেল:</label>
-                <input type="text" name="title" id="formTitle" class="form-control bg-dark text-white" value="{{movie.movie_data.title}}" required>
-            </div>
-            
-            <div class="mb-3">
-                <label class="form-label text-warning font-weight-bold">🗣️ ল্যাঙ্গুয়েজ ট্যাগ (যা ডিসপ্লে বা কার্ডে দেখাবে):</label>
-                <input type="text" name="lang" id="formLang" class="form-control bg-warning text-dark font-weight-bold" style="background-color: #fef08a !important; color: #000 !important;" value="{{movie.movie_data.lang}}" placeholder="উদা: Bangla / Dual Audio">
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">পোস্টার ইমেজ লিঙ্ক:</label>
-                <input type="text" name="poster" id="formPoster" class="form-control" value="{{movie.movie_data.poster}}">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">ব্যানার লিঙ্ক (Landscape Backdrop):</label>
-                <input type="text" name="backdrop" id="formBackdrop" class="form-control" value="{{movie.movie_data.backdrop}}">
-            </div>
-
-            <div class="row">
-                <div class="col-6 mb-3">
-                    <label class="form-label">IMDb রেটিং:</label>
-                    <input type="text" name="rating" id="formRating" class="form-control" value="{{movie.movie_data.rating}}">
-                </div>
-                <div class="col-6 mb-3">
-                    <label class="form-label">জনরা (Genres):</label>
-                    <input type="text" name="genres" id="formGenres" class="form-control" value="{{movie.movie_data.genres}}">
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">কাহিনী সংক্ষেপ (Plot):</label>
-                <textarea name="plot" id="formPlot" class="form-control" rows="4">{{movie.movie_data.plot}}</textarea>
-            </div>
-            <div class="mb-4">
-                <label class="form-label">স্ক্রিনশটস (প্রতি লাইনে একটি লিঙ্ক):</label>
-                <textarea name="screenshots" id="formScreens" class="form-control" rows="3">{% for s in movie.movie_data.screenshots %}{{s}}&#10;{% endfor %}</textarea>
-            </div>
-
-            <div class="d-flex flex-column gap-2">
-                <button type="submit" class="btn btn-success w-100">সংরক্ষণ করুন (Save & Update)</button>
-                <a href="{{prefix}}/admin" class="btn btn-secondary w-100 text-center">বাতিল করুন</a>
-            </div>
-        </form>
-    </div>
-
-    <script>
-        document.getElementById('liveSearchBtn').addEventListener('click', function() {
-            let query = document.getElementById('liveSearchQuery').value.trim();
-            if(!query) { alert("সার্চ করতে মুভির নাম লিখুন!"); return; }
-            
-            let resultContainer = document.getElementById('liveSearchResults');
-            resultContainer.style.display = "flex";
-            resultContainer.innerHTML = "<div style='color:#e2e8f0; font-size:12px; padding:10px;'>⏳ লোড হচ্ছে...</div>";
-            
-            fetch('{{prefix}}/api/tmdb-search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: query,
-                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                resultContainer.innerHTML = "";
-                if(data.length === 0) {
-                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কোনো ফলাফল পাওয়া যায়নি!</div>";
-                    return;
-                }
-                data.forEach(item => {
-                    let title = item.title || item.name;
-                    let year = (item.release_date || item.first_air_date || 'N/A').split('-')[0];
-                    let posterPath = item.poster_path ? 'https://image.tmdb.org/t/p/w185' + item.poster_path : 'https://via.placeholder.com/100x140?text=No+Poster';
-                    
-                    let div = document.createElement('div');
-                    div.className = "search-result-item";
-                    div.innerHTML = `
-                        <img src="${posterPath}" alt="Poster" onclick="autofillWithTmdId('${item.id}')">
-                        <div class="search-result-title">${title} (${year})</div>
-                    `;
-                    resultContainer.appendChild(div);
-                });
-            })
-            .catch(err => {
-                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কানেকশন ত্রুটি ঘটেছে!</div>";
-            });
-        });
-
-        function autofillWithTmdId(id) {
-            let resultContainer = document.getElementById('liveSearchResults');
-            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে ১ সেকেন্ড অপেক্ষা করুন...</div>";
-            
-            fetch('{{prefix}}/api/tmdb-fetch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tmdb_input: id,
-                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.error) {
-                    alert("ডাটা সিঙ্ক ব্যর্থ হয়েছে!");
-                } else {
-                    document.getElementById('formTitle').value = data.title;
-                    document.getElementById('formPoster').value = data.poster;
-                    document.getElementById('formBackdrop').value = data.backdrop;
-                    document.getElementById('formRating').value = data.rating;
-                    document.getElementById('formGenres').value = data.genres;
-                    document.getElementById('formPlot').value = data.plot;
-                    if(data.screenshots) document.getElementById('formScreens').value = data.screenshots.join('\\n');
-                    
-                    resultContainer.style.display = "none";
-                    alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
-                }
-            })
-            .catch(err => { alert("API কানেকশন ত্রুটি! অনুগ্রহ করে হোস্টিং সার্ভার চেক করুন।"); });
-        }
-    </script>
-</body>
-</html>
-"""
-
-
 # ==================== পাবলিক ডাইনামিক মুভি পোর্টাল (হোমপেজ থিম) ====================
 
 PORTAL_HTML = """
@@ -1086,7 +867,7 @@ PORTAL_HTML = """
     <div class="hero-section">
         <div class="container">
             <h1 class="hero-title">Unlimited Movies &amp; Series</h1>
-            <p class="text-muted small">একদম বিজ্ঞাপনমুক্ত হাই-স্পিড আল্ট্রা ফাস্ট ফাইল ডাউনলোড সিস্টেম!</p>
+            <p class="text-muted small">একদম হাই-স্পিড আল্ট্রা ফাস্ট ফাইল ডাউনলোড সিস্টেম!</p>
         </div>
     </div>
 
@@ -1111,8 +892,7 @@ PORTAL_HTML = """
 </html>
 """
 
-
-# ==================== পাবলিক রেসপন্সিভ ডাউনলোড পেজ HTML ====================
+# ==================== পাবলিক ডাউনলোড পেজ HTML ====================
 
 MOVIE_DETAIL_HTML = """
 <!DOCTYPE html>
@@ -1384,6 +1164,7 @@ MOVIE_DETAIL_HTML = """
 </body>
 </html>
 """
+
 
 # ==================== সিস্টেম রানার ব্লক ====================
 
