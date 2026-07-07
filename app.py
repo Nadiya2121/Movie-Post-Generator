@@ -54,7 +54,7 @@ if MONGO_URI:
 # --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
 def load_settings():
     default_settings = {
-        'direct_links': [""],
+        'direct_links': [],  # কোড থেকে ডিফল্ট হার্ডকোডেড লিংক সম্পূর্ণ অপসারণ করা হয়েছে
         'revenue_share': 20,
         'download_timer': 5,
         'blogger_url': MAIN_WEBSITE_URL,
@@ -438,7 +438,7 @@ def movie_download_hub(movie_id):
         
     return render_template_string(HUB_HTML, movie=movie, prefix=PREFIX)
 
-# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (ফিক্সড)
+# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (১০০% এডমিন প্যানেল ফোকাসড)
 @web_app.route('/download/<movie_id>/<quality>')
 @web_app.route(f'{PREFIX}/download/<movie_id>/<quality>')
 def movie_download_landing(movie_id, quality):
@@ -447,11 +447,15 @@ def movie_download_landing(movie_id, quality):
     if not movie:
         return "Requested content not found.", 404
         
-    # গ্লোবাল ভেরিয়েবলের বদলে সরাসরি ডাটাবেজ/ফাইল থেকে ফ্রেশ সেটিংস রিড করা হচ্ছে
+    # ফ্রেশ সেটিংস সরাসরি ডাটাবেজ/ফাইল থেকে লোড হচ্ছে
     settings = load_settings()
     
-    direct_links = settings.get('direct_links', [])
-    selected_direct_link = random.choice(direct_links) if direct_links else ""
+    # অ্যাডমিন প্যানেলে দেওয়া লিংকগুলো ফিল্টার করে রিড করা হচ্ছে
+    raw_direct_links = settings.get('direct_links', [])
+    valid_direct_links = [l.strip() for l in raw_direct_links if l.strip().startswith('http')]
+    
+    # অ্যাডমিন প্যানেলের লিংক থেকে যেকোনো একটি র্যান্ডমলি সিলেক্ট করা হচ্ছে
+    selected_direct_link = random.choice(valid_direct_links) if valid_direct_links else ""
     
     file_key = movie.get('dl_links', {}).get(quality)
     if not file_key:
@@ -459,7 +463,7 @@ def movie_download_landing(movie_id, quality):
         
     tg_bot_link = f"https://t.me/{BOT_USERNAME}?start={file_key}"
     
-    # প্যানেলে কোনো ডিরেক্ট লিংক না থাকলে সরাসরি বটে নিয়ে যাবে
+    # যদি এডমিন প্যানেলে কোনো লিংক না থাকে, তবে বটের লিংকেই ডিরেক্ট রিডাইরেক্ট হবে
     if not selected_direct_link:
         selected_direct_link = tg_bot_link
 
