@@ -26,7 +26,7 @@ DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023))
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-# Koyeb সাব-পাথ ফ্রেমওয়ার্ক
+# Koyeb সাব-পাথ ডিফল্ট ফ্রেমওয়ার্ক (অ্যাডমিন কনফিগ ব্যাকআপ হিসেবে থাকবে)
 MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
 PREFIX = "/view/Movie-Post-Generator"
 
@@ -55,17 +55,26 @@ def load_settings():
     default_settings = {
         'direct_links': ["https://omg10.com/4/11047054"],
         'revenue_share': 20,
-        'download_timer': 5  # ডিফল্ট ৫ সেকেন্ডের টাইমার
+        'download_timer': 5,
+        'website_url': MAIN_WEBSITE_URL,
+        'update_channel_id': "-1003506219023"
     }
     if db_mongo is not None:
         try:
             config = db_mongo['settings'].find_one({'_id': 'system_config'})
-            if config: return config
+            if config: 
+                # ডিফল্ট ফিল্ডগুলো নিশ্চিত করা
+                for key, val in default_settings.items():
+                    config.setdefault(key, val)
+                return config
         except Exception: pass
     if os.path.exists("settings.json"):
         try:
             with open("settings.json", "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                for key, val in default_settings.items():
+                    data.setdefault(key, val)
+                return data
         except Exception: pass
     return default_settings
 
@@ -79,6 +88,13 @@ def save_settings(settings):
         json.dump(settings, f, indent=4, ensure_ascii=False)
 
 system_settings = load_settings()
+
+def get_website_url():
+    settings = load_settings()
+    url = settings.get('website_url', MAIN_WEBSITE_URL).strip()
+    if not url.endswith('/'):
+        url += '/'
+    return url
 
 # --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
 def load_movies_db():
@@ -100,7 +116,7 @@ def save_movie_to_db(movie_id, data):
     current_time = time.time()
     data['updated_at'] = current_time
 
-    # ১. প্রথমে আইডি দিয়ে চেক করা হবে (এডিটের ক্ষেত্রে এটি ডুপ্লিকেট হওয়া রোধ করবে)
+    # ১. আইডি চেক (এডিট ডুপ্লিকেট রোধ)
     existing_by_id_index = -1
     for i, m in enumerate(movies):
         if m.get('_id') == movie_id:
@@ -108,15 +124,13 @@ def save_movie_to_db(movie_id, data):
             break
 
     if existing_by_id_index != -1:
-        # এটি একটি এডিট করা পোস্ট, আগের ডেটা সম্পূর্ণ রিপ্লেস করা হবে
         movies[existing_by_id_index] = data
         if db_mongo is not None:
             try:
                 db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-            except Exception:
-                pass
+            except Exception: pass
     else:
-        # ২. নতুন পোস্টের ক্ষেত্রে টাইটেল দিয়ে চেক করে কোয়ালিটি লিংক মার্জ করা হবে
+        # ২. নতুন ফাইল মার্জিং চেক
         existing_by_title_index = -1
         for i, m in enumerate(movies):
             if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
@@ -141,17 +155,14 @@ def save_movie_to_db(movie_id, data):
             if db_mongo is not None:
                 try:
                     db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie}, upsert=True)
-                except Exception:
-                    pass
+                except Exception: pass
         else:
-            # একদম নতুন টাইটেলের পোস্ট
             data['_id'] = movie_id
             movies.append(data)
             if db_mongo is not None:
                 try:
                     db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-                except Exception:
-                    pass
+                except Exception: pass
         
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
@@ -161,8 +172,7 @@ def delete_movie_from_db(movie_id):
         try:
             db_mongo['movies'].delete_one({'_id': movie_id})
             return
-        except Exception:
-            pass
+        except Exception: pass
     movies = load_movies_db()
     movies = [m for m in movies if m.get('_id') != movie_id]
     with open("movies_db.json", "w", encoding="utf-8") as f:
@@ -175,6 +185,20 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
     response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     return response
+
+
+# ==================== পাবলিক ভিউ ও ডাউনলোড পেজ ====================
+
+@web_app.route('/movie/<movie_id>')
+@web_app.route(f'{PREFIX}/movie/<movie_id>')
+def view_movie_public(movie_id):
+    movies = load_movies_db()
+    movie = next((m for m in movies if m.get('_id') == movie_id), None)
+    if not movie:
+        return "মুভিটি ডাটাবেজে পাওয়া যায়নি!", 404
+    settings = load_settings()
+    return render_template_string(MOVIE_DETAIL_HTML, movie=movie, settings=settings, bot_username=BOT_USERNAME, prefix=PREFIX)
+
 
 # ==================== এপিআই এন্ডপয়েন্ট ====================
 
@@ -236,7 +260,6 @@ def tmdb_fetch_api():
         "rating": rating, "genres": genres, "plot": plot, "screenshots": screenshots
     })
 
-# অ্যাডমিন প্যানেল থেকে লাইভ কুয়েরি সার্চ করার জন্য অতিরিক্ত এপিআই
 @web_app.route('/api/tmdb-search', methods=['POST'])
 @web_app.route(f'{PREFIX}/api/tmdb-search', methods=['POST'])
 def tmdb_search_endpoint():
@@ -287,7 +310,8 @@ def admin_dashboard():
     movies = load_movies_db()
     movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) 
     settings = load_settings()
-    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, prefix=PREFIX)
+    posted_status = request.args.get('posted')
+    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, posted_status=posted_status, prefix=PREFIX)
 
 @web_app.route('/admin/save-settings', methods=['POST'])
 @web_app.route(f'{PREFIX}/admin/save-settings', methods=['POST'])
@@ -299,7 +323,9 @@ def admin_save_settings():
     settings = {
         'direct_links': links_list,
         'revenue_share': int(request.form.get('revenue_share', 20)),
-        'download_timer': int(request.form.get('download_timer', 5))  
+        'download_timer': int(request.form.get('download_timer', 5)),
+        'website_url': request.form.get('website_url', '').strip(),
+        'update_channel_id': request.form.get('update_channel_id', '').strip()
     }
     save_settings(settings)
     global system_settings
@@ -336,6 +362,64 @@ def edit_movie(movie_id):
         
     return render_template_string(EDIT_HTML, movie=movie, prefix=PREFIX)
 
+# --- ডাইনামিক রিমোট আপডেট চ্যানেল পোস্টিং রুট ---
+@web_app.route('/admin/post-channel/<movie_id>')
+@web_app.route(f'{PREFIX}/admin/post-channel/<movie_id>')
+def post_to_channel(movie_id):
+    if not session.get('admin_logged_in'):
+        return redirect(f"{PREFIX}/admin/login")
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    success = loop.run_until_complete(send_movie_to_channel_job(movie_id))
+    
+    if success:
+        return redirect(f"{PREFIX}/admin?posted=success")
+    else:
+        return redirect(f"{PREFIX}/admin?posted=failed")
+
+async def send_movie_to_channel_job(movie_id):
+    movies = load_movies_db()
+    movie = next((m for m in movies if m.get('_id') == movie_id), None)
+    if not movie:
+        return False
+    
+    settings = load_settings()
+    channel_id = settings.get('update_channel_id')
+    if not channel_id:
+        return False
+        
+    try:
+        channel_id = int(channel_id)
+    except ValueError:
+        return False
+        
+    m_meta = movie['movie_data']
+    web_link = f"{get_website_url()}movie/{movie_id}"
+    
+    caption = (
+        f"🎬 <b>{m_meta['title']}</b>\n\n"
+        f"⭐ Rating: <b>{m_meta['rating']}</b>\n"
+        f"🗣️ Language: <b>{m_meta['lang']}</b>\n"
+        f"🎭 Genres: <b>{m_meta['genres']}</b>\n\n"
+        f"📝 <b>Plot:</b> {m_meta['plot'][:250]}...\n\n"
+        f"📥 নিচের বাটনে ক্লিক করে সরাসরি ওয়েবসাইট থেকে ডাউনলোড করুন।"
+    )
+    
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📥 ডাউনলোড লিংক (Download Link)", url=web_link)]
+    ])
+    
+    try:
+        if m_meta['poster'] and m_meta['poster'].startswith('http'):
+            await app.send_photo(chat_id=channel_id, photo=m_meta['poster'], caption=caption, reply_markup=markup, parse_mode=ParseMode.HTML)
+        else:
+            await app.send_message(chat_id=channel_id, text=caption, reply_markup=markup, parse_mode=ParseMode.HTML)
+        return True
+    except Exception as e:
+        print(f"Failed to post to channel: {e}")
+        return False
+
 @web_app.route('/admin/delete/<movie_id>')
 @web_app.route(f'{PREFIX}/admin/delete/<movie_id>')
 def delete_movie(movie_id):
@@ -359,30 +443,25 @@ def run_web_server():
 
 app = Client("movie_post_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# বুদ্ধিমান ফাইল নাম ক্লিনার (অটোমেটিক অপ্রয়োজনীয় ট্যাগ ও সাইট মুছে ফেলার জন্য)
+# উন্নত নাম ক্লিনার ও বছর ডিটেকটর
 def clean_movie_filename(filename):
     name, _ = os.path.splitext(filename)
     
-    # ১. বিভিন্ন ব্র্যাকেটের ভেতরের অপ্রয়োজনীয় গ্রুপ ট্যাগ মুছে ফেলা
     name = re.sub(r'\[.*?\]', ' ', name)
     name = re.sub(r'\(.*?\)', ' ', name)
     
-    # ২. ডোমেইন ও ওয়েবসাইটের নামগুলো মুছে ফেলা
     name = re.sub(r'\b[\w\-]+\.(com|net|org|app|cc|in|xyz|vip|ws|info|live|co|club|to|co\.in)\b', ' ', name, flags=re.IGNORECASE)
     name = re.sub(r'\b(bdmoviezone|vegamovies|katmoviehd|bolly4u|9xmovies|extramovies|worldfree4u|yts|yify|psa|pahe|galaxyrg|megusta|tigole|qxr|vxt|rarbg|extratorrent)\b', ' ', name, flags=re.IGNORECASE)
     
-    # ৩. ডট, ড্যাশ, আন্ডারস্কোর ইত্যাদির জায়গায় স্পেস বসানো
     name = re.sub(r'[\._\-+]', ' ', name)
     
-    # ৪. রিলিজ বছর (Year) খোঁজা ও সেটিকে আলাদা করা
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
     year = None
     if year_match:
         year = year_match.group(1)
         year_idx = name.find(year)
-        name = name[:year_idx] # বছরের পর অংশ সম্পূর্ণ বাদ দেওয়া হচ্ছে
+        name = name[:year_idx]
         
-    # ৫. প্রথম কোনো টেকনিক্যাল শব্দ পাওয়া গেলে সেখান থেকেই লেখা কেটে ফেলা (সবচেয়ে কার্যকরী সমাধান)
     technical_keywords = [
         r'\b480p\b', r'\b720p\b', r'\b1080p\b', r'\b2160p\b', r'\b4k\b',
         r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
@@ -403,7 +482,6 @@ def clean_movie_filename(filename):
     
     return name, year
 
-# অটোমেটিক কোয়ালিটি ডিটেকশন
 def detect_file_quality(filename):
     fn_lower = filename.lower()
     if "1080" in fn_lower: return "1080p"
@@ -411,7 +489,6 @@ def detect_file_quality(filename):
     elif "480" in fn_lower: return "480p"
     return "720p"
 
-# ফাইলটি ডাটাবেজ চ্যানেলে সংরক্ষণ করার হেল্পার ফাংশন
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session: return None
@@ -432,7 +509,7 @@ async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক ডিকোড ও বিতরণ
+    # স্টার্ট লিংক ডিকোড ও ডেলিভারি
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -446,15 +523,17 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
+    # অ্যাডমিন প্যানেলে সেট করা কাস্টম ওয়েবসাইট লিঙ্ক ব্যবহার হচ্ছে
+    live_site_url = get_website_url()
     admin_btn = []
     if chat_id == OWNER_ID:
         admin_btn = [
-            [InlineKeyboardButton("⚙️ অ্যাডমিন কন্ট্রোল প্যানেল (Login)", url=MAIN_WEBSITE_URL + "admin")],
-            [InlineKeyboardButton("🌐 আমার লাইভ মুভি সাইট", url=MAIN_WEBSITE_URL)]
+            [InlineKeyboardButton("⚙️ অ্যাডমিন কন্ট্রোল প্যানেল (Login)", url=live_site_url + "admin")],
+            [InlineKeyboardButton("🌐 আমার লাইভ মুভি সাইট", url=live_site_url)]
         ]
     else:
         admin_btn = [
-            [InlineKeyboardButton("🌐 ভিজিট করুন মুভি সাইট", url=MAIN_WEBSITE_URL)]
+            [InlineKeyboardButton("🌐 ভিজিট করুন মুভি সাইট", url=live_site_url)]
         ]
 
     await client.send_message(
@@ -485,7 +564,6 @@ async def auto_file_poster_handler(client, message):
     
     await status_msg.edit_text(f"🔍 **মুভির নাম:** `{cleaned_title}`\n💿 **কোয়ালিটি:** `{detected_quality}`\n\n⏳ TMDB ডাটাবেজে সার্চ করা হচ্ছে...")
     
-    # TMDB সার্চ কুয়েরি তৈরি করা হচ্ছে (বছরের ফিল্টার সহ)
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
     if release_year:
         url += f"&year={release_year}"
@@ -498,7 +576,6 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                # রিলিজ বছর দিয়ে রেজাল্ট না পাওয়া গেলে, শুধুমাত্র টাইটেল দিয়ে পুনরায় ট্রাই করার ফলব্যাক ব্যবস্থা
                 if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
@@ -518,7 +595,6 @@ async def auto_file_poster_handler(client, message):
                             rating = f"{details.get('vote_average'):.1f}/10" if details.get('vote_average') else 'N/A'
                             genres = ", ".join([g['name'] for g in details.get('genres', [])])
                             
-                            # এখানে পূর্বে 'res_data' ছিল যা ক্র্যাশ করত। এখন এটি সঠিকভাবে 'details' করা হয়েছে।
                             poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else 'https://via.placeholder.com/300x450'
                             backdrop = f"https://image.tmdb.org/t/p/original{details.get('backdrop_path')}" if details.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
                             plot = details.get('overview', 'No description available.')
@@ -532,7 +608,6 @@ async def auto_file_poster_handler(client, message):
                             }
 
     if not movie_meta:
-        # TMDB-তে খুঁজে না পাওয়া গেলে সাধারণ টেমপ্লেট
         movie_meta = {
             'title': f"{cleaned_title} ({release_year})" if release_year else cleaned_title,
             'poster': 'https://via.placeholder.com/300x450?text=No+Poster+Found',
@@ -568,6 +643,7 @@ async def auto_file_poster_handler(client, message):
     
     save_movie_to_db(m_id_unique, movie_data)
 
+    live_site_url = get_website_url()
     success_text = (
         f"🎉 **পোস্টটি সফলভাবে তৈরি ও লাইভ পাবলিশ করা হয়েছে!**\n\n"
         f"🎬 **নাম:** `{movie_meta['title']}`\n"
@@ -577,8 +653,8 @@ async def auto_file_poster_handler(client, message):
     )
     
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛠️ ল্যাঙ্গুয়েজ ট্যাগ বসান (অ্যাডমিন প্যানেল)", url=MAIN_WEBSITE_URL + "admin")],
-        [InlineKeyboardButton("🌐 সাইটে পোস্টটি দেখুন", url=MAIN_WEBSITE_URL)]
+        [InlineKeyboardButton("🛠️ ল্যাঙ্গুয়েজ ট্যাগ বসান (অ্যাডমিন প্যানেল)", url=live_site_url + "admin")],
+        [InlineKeyboardButton("🌐 সাইটে পোস্টটি দেখুন", url=live_site_url + "movie/" + m_id_unique)]
     ])
     
     await status_msg.delete()
@@ -682,9 +758,10 @@ DASHBOARD_HTML = """
         
         .tag-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold; display: inline-block; }
         
-        .action-btn-group { display: flex; gap: 8px; margin-top: 10px; }
-        .action-btn { flex: 1; padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; text-align: center; text-decoration: none !important; }
+        .action-btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .action-btn { flex: 1; min-width: 90px; padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; text-align: center; text-decoration: none !important; }
         .btn-edit { background: linear-gradient(135deg, #0284c7, #0ea5e9); color: #fff; }
+        .btn-channel { background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; }
         .btn-delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
         
         .form-control, .form-control:focus { background-color: #161824 !important; border-color: rgba(255,255,255,0.1) !important; color: #fff !important; border-radius: 10px; }
@@ -702,19 +779,38 @@ DASHBOARD_HTML = """
     </div>
 
     <div class="container">
-        <!-- বিজ্ঞাপন ও কাস্টম টাইমার কন্ট্রোল উইজেট -->
+        {% if posted_status == 'success' %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>🎉 চমৎকার!</strong> পোস্টটি সফলভাবে টেলিগ্রাম চ্যানেলে পাবলিশ করা হয়েছে।
+        </div>
+        {% elif posted_status == 'failed' %}
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>❌ ব্যর্থ হয়েছে!</strong> চ্যানেল আইডি চেক করুন অথবা নিশ্চিত করুন বটটি আপনার চ্যানেলের এডমিন রয়েছে।
+        </div>
+        {% endif %}
+
+        <!-- অ্যাডমিন কাস্টম সেটিংস কন্ট্রোল প্যানেল -->
         <div class="card p-3 mb-4 shadow">
-            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Direct Link &amp; Premium Timer Configuration</h6>
+            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Configuration Panel</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
                 <div class="mb-3">
-                    <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ (প্রতি লাইনে একটি লিংক):</label>
-                    <textarea name="direct_links" class="form-control" rows="3" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
+                    <label class="form-label text-muted small">🌐 আমার ওয়েবসাইট লিংক (Website URL):</label>
+                    <input type="url" name="website_url" class="form-control" value="{{settings.website_url}}" placeholder="উদা: https://mysite.koyeb.app/view/Movie-Post-Generator/" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-muted small">📢 টেলিগ্রাম আপডেট চ্যানেল আইডি (Update Channel ID):</label>
+                    <input type="text" name="update_channel_id" class="form-control" value="{{settings.update_channel_id}}" placeholder="উদা: -100xxxxxxxxxx" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ (প্রতি লাইনে একটি শর্টলিঙ্ক):</label>
+                    <textarea name="direct_links" class="form-control" rows="2" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
                 </div>
                 
                 <div class="mb-3">
                     <label class="form-label text-info font-weight-bold small">⏱️ ডাউনলোড প্রগ্রেস টাইমার (সেকেন্ডে):</label>
                     <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
-                    <small class="text-muted small">ইউজার ডাউনলোডে ক্লিক করার পর কত সেকেন্ড কাউন্টডাউন টাইমার চলবে তা সেট করুন।</small>
                 </div>
 
                 <div class="mb-3" style="display:none;">
@@ -740,7 +836,8 @@ DASHBOARD_HTML = """
                     <span class="tag-badge">🗣️ {{m.movie_data.lang}}</span>
                     
                     <div class="action-btn-group">
-                         <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Live Sync</a>
+                         <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Sync</a>
+                         <a href="{{prefix}}/admin/post-channel/{{m._id}}" class="action-btn btn-channel">📢 Post Channel</a>
                          <a href="{{prefix}}/admin/delete/{{m._id}}" onclick="return confirm('মুছে ফেলতে চান?')" class="action-btn btn-delete">Delete</a>
                     </div>
                 </div>
@@ -922,6 +1019,285 @@ EDIT_HTML = """
                 }
             })
             .catch(err => { alert("কানেকশন এরর!"); });
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+# ==================== পাবলিক রেসপন্সিভ ডাউনলোড পেজ HTML ====================
+
+MOVIE_DETAIL_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{movie.movie_data.title}} - BD Movie Zone</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #06070d;
+            color: #f1f5f9;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow-x: hidden;
+            position: relative;
+        }
+        .backdrop-bg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 50vh;
+            background: url('{{movie.movie_data.backdrop}}') no-repeat center top;
+            background-size: cover;
+            filter: blur(15px) brightness(0.25);
+            z-index: -1;
+        }
+        .movie-card {
+            background: rgba(15, 17, 26, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            backdrop-filter: blur(20px);
+            padding: 24px;
+            margin-top: 100px;
+        }
+        .poster-img {
+            width: 100%;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .movie-title {
+            font-size: 26px;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+        .meta-tag {
+            background: rgba(56, 189, 248, 0.12);
+            color: #38bdf8;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        .download-btn {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: #000;
+            font-weight: 800;
+            padding: 14px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            cursor: pointer;
+            border: none;
+            transition: 0.2s;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.2);
+            width: 100%;
+            margin-bottom: 12px;
+            text-decoration: none !important;
+        }
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
+            color: #000;
+        }
+        /* ফুলস্ক্রিন ব্লার প্রগ্রেস মডাল */
+        .timer-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(4, 5, 10, 0.85);
+            backdrop-filter: blur(20px);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            visibility: hidden;
+            opacity: 0;
+            transition: 0.3s ease-in-out;
+        }
+        .timer-overlay.active {
+            visibility: visible;
+            opacity: 1;
+        }
+        .timer-wrapper {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+        .timer-svg {
+            transform: rotate(-90deg);
+            width: 120px;
+            height: 120px;
+        }
+        .timer-bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.08);
+            stroke-width: 6;
+        }
+        .timer-bar {
+            fill: none;
+            stroke: #38bdf8;
+            stroke-width: 6;
+            stroke-linecap: round;
+            stroke-dasharray: 283; /* 2 * PI * r = 2 * 3.1415 * 45 */
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 1s linear;
+        }
+        .timer-text {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+            font-weight: 800;
+            color: #fff;
+        }
+        .unlocked-btn {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            padding: 14px 28px;
+            border-radius: 14px;
+            font-weight: 800;
+            display: none;
+            text-decoration: none !important;
+            animation: pulseGlow 1.5s infinite alternate;
+        }
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+            100% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.8); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="backdrop-bg"></div>
+
+    <div class="container pb-5">
+        <div class="movie-card shadow-lg">
+            <div class="row">
+                <div class="col-md-4 text-center">
+                    <img src="{{movie.movie_data.poster}}" class="poster-img mb-4 mb-md-0" alt="Poster">
+                </div>
+                <div class="col-md-8">
+                    <h1 class="movie-title">{{movie.movie_data.title}}</h1>
+                    <div class="mb-3">
+                        <span class="meta-tag">⭐ {{movie.movie_data.rating}}</span>
+                        <span class="meta-tag">🗣️ {{movie.movie_data.lang}}</span>
+                        <span class="meta-tag">🎭 {{movie.movie_data.genres}}</span>
+                    </div>
+
+                    <h6 class="text-white font-weight-bold mb-2" style="font-size: 15px;">Synopsis / কাহিনী সংক্ষেপ:</h6>
+                    <p class="text-muted small mb-4" style="line-height:1.6;">{{movie.movie_data.plot}}</p>
+
+                    <h6 class="text-warning font-weight-bold mb-3" style="font-size:15px; letter-spacing:0.5px;">📥 DOWNLOAD LINKS:</h6>
+                    
+                    {% if movie.dl_links.get('480p') %}
+                    <button class="download-btn" onclick="startDownloadTimer('{{movie.dl_links.get('480p')}}', '480p')">
+                        🚀 Download 480p (Standard)
+                    </button>
+                    {% endif %}
+                    
+                    {% if movie.dl_links.get('720p') %}
+                    <button class="download-btn" onclick="startDownloadTimer('{{movie.dl_links.get('720p')}}', '720p')">
+                        ⚡ Download 720p (HD Quality)
+                    </button>
+                    {% endif %}
+                    
+                    {% if movie.dl_links.get('1080p') %}
+                    <button class="download-btn" onclick="startDownloadTimer('{{movie.dl_links.get('1080p')}}', '1080p')">
+                        🔥 Download 1080p (Full Ultra HD)
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if movie.movie_data.screenshots %}
+            <div class="row mt-5">
+                 <h6 class="text-white font-weight-bold mb-3">📸 Screen Captures:</h6>
+                 {% for s in movie.movie_data.screenshots %}
+                 <div class="col-6 col-md-3 mb-3">
+                      <img src="{{s}}" class="img-fluid rounded border border-secondary" style="object-fit: cover; width:100%; height:120px;" alt="Screenshot">
+                 </div>
+                 {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- গ্লোয়িং এনিমেটেড মডাল উইজেট -->
+    <div id="timerOverlay" class="timer-overlay">
+        <div class="text-center" id="overlayHeader">
+            <h5 class="text-white font-weight-bold mb-1">Generating Download Link...</h5>
+            <p class="text-muted small">অনুগ্ৰহ করে কয়েক সেকেন্ড অপেক্ষা করুন</p>
+        </div>
+        
+        <div class="timer-wrapper my-4" id="timerCircleBox">
+            <svg class="timer-svg" viewBox="0 0 100 100">
+                <circle class="timer-bg" cx="50" cy="50" r="45"></circle>
+                <circle class="timer-bar" cx="50" cy="50" r="45" id="timerBar"></circle>
+            </svg>
+            <div class="timer-text" id="timerText">{{settings.download_timer}}</div>
+        </div>
+
+        <a href="" id="finalDownloadBtn" class="unlocked-btn">⚡ Get File (টেলিগ্রামে ডাউনলোড করুন)</a>
+    </div>
+
+    <script>
+        const timerDuration = parseInt('{{settings.download_timer}}');
+        const shortlinks = {{settings.direct_links | tojson}};
+        const botUsername = '{{bot_username}}';
+
+        function startDownloadTimer(fileKey, quality) {
+            let overlay = document.getElementById('timerOverlay');
+            let timerBar = document.getElementById('timerBar');
+            let timerText = document.getElementById('timerText');
+            let finalBtn = document.getElementById('finalDownloadBtn');
+            let circleBox = document.getElementById('timerCircleBox');
+            let header = document.getElementById('overlayHeader');
+
+            // রিসেট মডাল
+            overlay.classList.add('active');
+            circleBox.style.display = 'block';
+            header.style.display = 'block';
+            finalBtn.style.display = 'none';
+            timerText.innerText = timerDuration;
+            timerBar.style.strokeDashoffset = 0;
+
+            const totalDash = 283; // 2 * PI * 45
+            let timeLeft = timerDuration;
+
+            let interval = setInterval(() => {
+                timeLeft--;
+                timerText.innerText = timeLeft;
+                let offset = totalDash - (timeLeft / timerDuration) * totalDash;
+                timerBar.style.strokeDashoffset = offset;
+
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    circleBox.style.display = 'none';
+                    header.style.display = 'none';
+                    
+                    // বটের সরাসরি লিঙ্ক তৈরি
+                    let tgLink = `https://t.me/${botUsername}?start=${fileKey}`;
+                    
+                    // বাটন আপডেট
+                    finalBtn.href = tgLink;
+                    finalBtn.style.display = 'block';
+                    
+                    // উপার্জন বাড়াতে কাস্টম ট্রিক: শর্টলিংক থাকলে নতুন উইন্ডোতে শর্টলিংক খুলবে, একই সাথে টেলিগ্রাম লিঙ্ক ট্রিপ হবে
+                    finalBtn.onclick = function(e) {
+                        if (shortlinks.length > 0) {
+                            let randomLink = shortlinks[Math.floor(Math.random() * shortlinks.length)];
+                            window.open(randomLink, '_blank');
+                        }
+                    };
+                }
+            }, 1000);
         }
     </script>
 </body>
