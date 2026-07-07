@@ -340,7 +340,8 @@ def admin_save_settings():
         return redirect(f"{PREFIX}/admin/login")
         
     links_raw = request.form.get('direct_links', '')
-    links_list = [l.strip() for l in links_raw.split('\n') if l.strip().startswith('http')]
+    # রেগুলার এক্সপ্রেশন ব্যবহার করে সঠিকভাবে লাইন ব্রেক স্প্লিটিং (ক্যারিজ রিটার্ন বাতিলেক নিশ্চিতকরণ)
+    links_list = [l.strip() for l in re.split(r'[\r\n]+', links_raw) if l.strip().startswith('http')]
     
     admin_raw = request.form.get('admin_ids', '')
     admin_list = []
@@ -442,10 +443,8 @@ def movie_download_landing(movie_id, quality):
     if not file_key:
         return f"Sorry, {quality} file is currently unavailable for this movie.", 404
         
-    # টেলিগ্রাম বটের ডিপ-লিংক তৈরি করা হচ্ছে
     tg_bot_link = f"https://t.me/{BOT_USERNAME}?start={file_key}"
     
-    # ডিরেক্ট লিংক না থাকলে সরাসরি টেলিগ্রাম লিংকে রিডাইরেক্ট হবে
     if not selected_direct_link:
         selected_direct_link = tg_bot_link
 
@@ -453,7 +452,7 @@ def movie_download_landing(movie_id, quality):
         DOWNLOAD_HTML, 
         movie=movie, 
         quality=quality, 
-        timer=settings.get('download_timer', 5), 
+        timer=int(settings.get('download_timer', 5)), 
         direct_link=selected_direct_link, 
         tg_bot_link=tg_bot_link
     )
@@ -576,13 +575,11 @@ async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক ডিকোড ও ডেলিভারি (সম্পূর্ণ ওয়াটারমার্ক-মুক্ত ও নতুন ব্র্যান্ডিং ক্যাপশনে)
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
             db_msg_id = int(param.split("_")[1])
             try:
-                # ডাটাবেজ চ্যানেল থেকে ফাইল রিড করা হচ্ছে
                 db_message = await client.get_messages(DATABASE_CHANNEL_ID, db_msg_id)
                 if not (db_message.document or db_message.video):
                     await client.send_message(chat_id, "❌ ফাইলটি খুঁজে পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
@@ -591,7 +588,6 @@ async def handle_start(client, message):
                 file_id = db_message.document.file_id if db_message.document else db_message.video.file_id
                 file_type = 'document' if db_message.document else 'video'
                 
-                # মুভি সম্পর্কিত তথ্য ডাটাবেজ থেকে খুঁজে আনা হচ্ছে
                 movies = load_movies_db()
                 matched_movie = None
                 matched_quality = "HD"
@@ -606,7 +602,6 @@ async def handle_start(client, message):
                             break
                     if matched_movie: break
                 
-                # সেটিংস ও চ্যানেল লিংক রিড করা হচ্ছে
                 settings = load_settings()
                 up_channel = settings.get('update_channel_url', 'https://t.me/BDMovieZone')
                 grp_channel = settings.get('group_channel_url', 'https://t.me/BDMovieZoneGroup')
@@ -621,7 +616,6 @@ async def handle_start(client, message):
                     lang = "N/A"
                     genres = "Movie"
                 
-                # কাস্টম ক্যাপশন টেমপ্লেট দিয়ে প্রসেসিং
                 caption_tpl = settings.get('custom_caption_template', '')
                 if not caption_tpl:
                     caption_tpl = (
@@ -635,7 +629,6 @@ async def handle_start(client, message):
                 
                 caption = caption_tpl.format(title=title, lang=lang, genres=genres, quality=matched_quality)
                 
-                # কাস্টম বাটন লেআউট
                 buttons = [
                     [
                         InlineKeyboardButton("📢 Join Update Channel", url=up_channel),
@@ -646,7 +639,6 @@ async def handle_start(client, message):
                     ]
                 ]
                 
-                # নতুন ব্র্যান্ডেড মেসেজ হিসেবে ফাইলটি সরাসরি সেন্ড করা
                 if file_type == 'document':
                     user_msg = await client.send_document(chat_id, file_id, caption=caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
                 else:
@@ -716,7 +708,7 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                if not results and release_year:
+                if not Math and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
                         if fb_resp.status == 200:
@@ -1188,24 +1180,25 @@ DOWNLOAD_HTML = """
         }
 
         .landing-card {
-            background: rgba(15, 17, 26, 0.7);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(15, 17, 26, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.09);
             border-radius: 24px;
             width: 100%;
-            max-width: 500px;
+            max-width: 480px;
             padding: 30px;
             text-align: center;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            position: relative;
         }
 
         .movie-poster {
-            width: 140px;
-            height: 200px;
-            border-radius: 14px;
+            width: 130px;
+            height: 185px;
+            border-radius: 16px;
             object-fit: cover;
-            border: 2px solid rgba(255, 255, 255, 0.15);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.6);
             margin-bottom: 20px;
         }
 
@@ -1214,59 +1207,89 @@ DOWNLOAD_HTML = """
             font-weight: 800;
             color: #fff;
             margin-bottom: 8px;
+            letter-spacing: -0.5px;
+            line-height: 1.3;
         }
 
         .quality-badge {
-            background: rgba(56, 189, 248, 0.2);
-            color: #38bdf8;
-            font-weight: bold;
-            font-size: 13px;
+            background: rgba(0, 242, 254, 0.08);
+            color: #00f2fe;
+            font-weight: 700;
+            font-size: 12px;
             padding: 6px 16px;
             border-radius: 30px;
             display: inline-block;
             margin-bottom: 25px;
-            border: 1px solid rgba(56, 189, 248, 0.3);
+            border: 1px solid rgba(0, 242, 254, 0.2);
+            letter-spacing: 0.5px;
         }
 
-        .timer-container {
-            margin: 20px 0;
-            padding: 15px;
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+        /* প্রিমিয়াম সার্কুলার প্রগ্রেস টাইমার উইজেট */
+        .progress-ring-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin: 15px auto;
         }
 
-        .spinner-custom {
-            width: 40px; height: 40px;
-            border: 4px solid rgba(255,255,255,0.1);
-            border-top: 4px solid #38bdf8;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 10px auto;
+        .progress-ring {
+            transform: rotate(-90deg);
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.3s;
+            transform-origin: 50% 50%;
         }
 
+        .timer-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+            font-weight: 800;
+            color: #00f2fe;
+            text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-top: 15px;
+            font-weight: 600;
+        }
+
+        /* প্রিমিয়াম নিয়ন গ্লোয়িং ডাউনলোড বাটন */
         .btn-download {
             display: none;
-            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-            color: #000 !important;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+            color: #030712 !important;
             font-weight: 800;
             font-size: 16px;
-            padding: 15px 30px;
-            border-radius: 14px;
+            padding: 16px 32px;
+            border-radius: 50px;
             border: none;
-            box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4);
-            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.35);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             width: 100%;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            margin-top: 15px;
         }
 
         .btn-download:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 25px rgba(14, 165, 233, 0.6);
+            transform: scale(1.03);
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.6);
+        }
+
+        .btn-download svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
         }
     </style>
 </head>
@@ -1277,43 +1300,76 @@ DOWNLOAD_HTML = """
     <div class="landing-card shadow-lg">
         <img src="{{movie.movie_data.poster}}" alt="Poster" class="movie-poster">
         <div class="movie-title">{{movie.movie_data.title}}</div>
-        <div class="quality-badge">💿 Quality Selected: {{quality}}</div>
+        <div class="quality-badge">💿 Selected: {{quality}}</div>
 
-        <div id="countdownBox" class="timer-container">
-            <div class="spinner-custom"></div>
-            <div style="font-size: 14px; color: #94a3b8; margin-top: 10px;">Generating secure link...</div>
-            <h5 class="text-info mt-2" style="font-weight: 800;"><span id="timerValue">{{timer}}</span> seconds left</h5>
+        <!-- প্রগ্রেস সার্কেল উইজেট -->
+        <div id="countdownBox">
+            <div class="progress-ring-container">
+                <svg class="progress-ring" width="120" height="120">
+                    <circle class="progress-ring__background" stroke="rgba(255,255,255,0.05)" stroke-width="6" fill="transparent" r="50" cx="60" cy="60"/>
+                    <circle class="progress-ring__circle" stroke="url(#gradient)" stroke-width="6" fill="transparent" r="50" cx="60" cy="60"/>
+                </svg>
+                <div class="timer-display" id="timerValue">{{timer}}</div>
+            </div>
+            <div class="status-text" id="statusLabel">Securing connection... Please wait</div>
         </div>
 
-        <button id="downloadBtn" class="btn-download" onclick="triggerDownload()">📥 Click Here to Download (Telegram)</button>
+        <!-- প্রিমিয়াম ডাউনলোড বাটন -->
+        <button id="downloadBtn" class="btn-download" onclick="triggerDownload()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.53c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            ⚡ Get Download File (Telegram)
+        </button>
         
-        <p class="text-muted small mt-4" style="font-size: 11px;">⚠️ Note: If download doesn't start, please disable adblocker and refresh.</p>
+        <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity:0.6;">⚠️ Disable adblocker if downloading is interrupted.</p>
     </div>
 
+    <!-- SVG গ্রাডিয়েন্ট ডেফিনিশন -->
+    <svg width="0" height="0">
+        <defs>
+            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#00f2fe" />
+                <stop offset="100%" stop-color="#4facfe" />
+            </linearGradient>
+        </defs>
+    </svg>
+
     <script>
-        let countdown = {{timer}};
-        const timerValue = document.getElementById('timerValue');
-        const countdownBox = document.getElementById('countdownBox');
-        const downloadBtn = document.getElementById('downloadBtn');
+        const circle = document.querySelector('.progress-ring__circle');
+        const radius = circle.r.baseVal.value;
+        const circumference = radius * 2 * Math.PI;
+
+        circle.style.strokeDasharray = `${circumference} ${circumference}`;
+        circle.style.strokeDashoffset = `${circumference}`;
+
+        function setProgress(percent) {
+            const offset = circumference - (percent / 100 * circumference);
+            circle.style.strokeDashoffset = offset;
+        }
+
+        let initialTimer = parseInt("{{timer}}") || 5;
+        let countdown = initialTimer;
+        
+        setProgress(100);
 
         const interval = setInterval(() => {
             countdown--;
-            timerValue.innerText = countdown;
+            document.getElementById('timerValue').innerText = countdown;
+            
+            let percent = (countdown / initialTimer) * 100;
+            setProgress(percent);
+
             if (countdown <= 0) {
                 clearInterval(interval);
-                countdownBox.style.display = 'none';
-                downloadBtn.style.display = 'block';
+                document.getElementById('countdownBox').style.display = 'none';
+                document.getElementById('downloadBtn').style.display = 'inline-flex';
             }
         }, 1000);
 
         function triggerDownload() {
-            // ডিরেক্ট এড লিংক নতুন ট্যাবে খুলবে
             window.open("{{direct_link}}", "_blank");
-            
-            // একই ট্যাবে ইউজার টেলিগ্রাম বটে ফাইল ডেলিভারি পেয়ে যাবে
             setTimeout(() => {
                 window.location.href = "{{tg_bot_link}}";
-            }, 300);
+            }, 350);
         }
     </script>
 </body>
