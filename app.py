@@ -8,7 +8,7 @@ import re
 import html
 import time
 import urllib.parse
-import aiohttp
+import requests  # থ্রেড-সেফ রিমোট এপিআই কুয়েরির জন্য
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -30,7 +30,7 @@ MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Mo
 PREFIX = "/view/Movie-Post-Generator"
 
 http_session = None
-main_loop = None  # বটের রানিং লুপ স্টোর করার জন্য
+main_loop = None  # টেলিগ্রাম বটের রানিং ইভেন্ট লুপ
 web_app = Flask(__name__)
 web_app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey_bdmoviezone')
 
@@ -49,6 +49,9 @@ if MONGO_URI:
     except Exception as e:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
         db_mongo = None
+else:
+    print("⚠️ WARNING: MONGO_URI environment variable is missing! Local JSON is being used.")
+    print("⚠️ If you are hosting on Koyeb, data WILL be deleted on every redeploy/restart. Please connect MongoDB!")
 
 # --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
 def load_settings():
@@ -89,10 +92,11 @@ def save_settings(settings):
 
 system_settings = load_settings()
 
+# ইউজার ইউআরএল সেফগার্ড (টেলিগ্রামের BUTTON_URL_INVALID এরর বন্ধ করার জন্য)
 def get_website_url():
     settings = load_settings()
     url = settings.get('website_url', '').strip()
-    if not url:
+    if not url or not url.startswith('http'):
         url = MAIN_WEBSITE_URL
     url = url.rstrip('/')
     if url.endswith('/admin'):
@@ -111,10 +115,10 @@ def get_admin_ids():
                 pass
     return list(set(admins))
 
-# থ্রেড-সেফ উপায়ে ফ্ল্যাস্ক থেকে বটের কাজগুলো করানোর ড্রাইভার ফাংশন
+# টেলিগ্রাম এপিআই রিলেটেড থ্রেড-সেফ ড্রাইভার
 def run_async(coro, timeout=15):
     global main_loop
-    if main_loop is None:
+    if main_loop is None or not main_loop.is_running():
         loop = asyncio.new_event_loop()
         return loop.run_until_complete(coro)
     future = asyncio.run_coroutine_threadsafe(coro, main_loop)
@@ -221,7 +225,7 @@ def view_movie_public(movie_id):
     return render_template_string(MOVIE_DETAIL_HTML, movie=movie, settings=settings, bot_username=BOT_USERNAME, prefix=PREFIX)
 
 
-# ==================== এপিআই এন্ডপয়েন্ট ====================
+# ==================== রিমোট সিনক্রোনাস এপিআই এন্ডপয়েন্ট ====================
 
 @web_app.route('/api/movies', methods=['GET'])
 @web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
@@ -235,25 +239,6 @@ def get_all_movies_api():
 def get_settings_api():
     settings = load_settings()
     return jsonify(settings)
-
-# TMDB রিমোট রিকোয়েস্ট অ্যাসিনক্রোনাস ফাংশনসমূহ
-async def fetch_tmdb_data_job(tmdb_id, is_tv):
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, timeout=10) as r:
-            if r.status != 200: return None
-            return await r.json()
-
-async def search_tmdb_job(query, is_tv):
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, timeout=10) as r:
-            if r.status == 200:
-                res = await r.json()
-                return res.get('results', [])
-    return []
 
 @web_app.route('/api/tmdb-fetch', methods=['POST'])
 @web_app.route(f'{PREFIX}/api/tmdb-fetch', methods=['POST'])
@@ -270,8 +255,17 @@ def tmdb_fetch_api():
             tmdb_id = match.group(2)
             is_tv = (match.group(1) == "tv")
             
-    res_data = run_async(fetch_tmdb_data_job(tmdb_id, is_tv))
-    if not res_data: return jsonify({"error": "Failed to fetch data"}), 400
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
+    
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return jsonify({"error": "Failed to fetch data from TMDB"}), 400
+        res_data = r.json()
+    except Exception as e:
+        print(f"TMDB Fetch Connection Error: {e}")
+        return jsonify({"error": "API Connection Error"}), 500
         
     title = res_data.get('title') if not is_tv else res_data.get('name')
     release = res_data.get('release_date') if not is_tv else res_data.get('first_air_date')
@@ -298,8 +292,18 @@ def tmdb_search_endpoint():
     query = data.get('query', '').strip()
     is_tv = data.get('is_tv', False)
     
-    results = run_async(search_tmdb_job(query, is_tv))
-    return jsonify(results)
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
+    
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            results = r.json().get('results', [])
+            return jsonify(results)
+    except Exception as e:
+        print(f"TMDB Search Connection Error: {e}")
+        
+    return jsonify([])
 
 
 # ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
@@ -999,7 +1003,7 @@ EDIT_HTML = """
                 });
             })
             .catch(err => {
-                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কানেশন ত্রুটি ঘটেছে!</div>";
+                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কানেকশন ত্রুটি ঘটেছে!</div>";
             });
         });
 
@@ -1032,7 +1036,7 @@ EDIT_HTML = """
                     alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
                 }
             })
-            .catch(err => { alert("কানেকশন এরর!"); });
+            .catch(err => { alert("API কানেকশন ত্রুটি! অনুগ্রহ করে হোস্টিং সার্ভার চেক করুন।"); });
         }
     </script>
 </body>
@@ -1381,11 +1385,9 @@ MOVIE_DETAIL_HTML = """
 </html>
 """
 
-
 # ==================== সিস্টেম রানার ব্লক ====================
 
 if __name__ == '__main__':
-    # ফ্ল্যাস্ক সার্ভারকে ব্যাকগ্রাউন্ড থ্রেডে রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
@@ -1394,7 +1396,6 @@ if __name__ == '__main__':
         global http_session, main_loop
         print("Starting Pyrogram Bot Client...")
         
-        # থ্রেড-সেফ অ্যাক্সেসের জন্য মেইন ইভেন্ট লুপটি স্টোর করে রাখা
         main_loop = asyncio.get_running_loop()
         
         await app.start()
