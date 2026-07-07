@@ -100,6 +100,7 @@ def save_settings(settings):
     with open("settings.json", "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=4, ensure_ascii=False)
 
+# Initial load
 system_settings = load_settings()
 
 # --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
@@ -424,9 +425,9 @@ def send_to_channel(movie_id):
         err_desc = res.get('description', 'Unknown API Error')
         return f"Failed to send post. Telegram Error: {err_desc}", 500
 
-# ==================== নতুন কোয়ালিটি সিলেকশন হাব ও ডাউনলোড মেকানিজম ====================
+# ==================== কোয়ালিটি সিলেকশন হাব ও ডাউনলোড মেকানিজম ====================
 
-# ১. ডাউনলোড মেইন হাব (এখানে সমস্ত এভেলেবল বাটন এবং সিরিজের সিজন-এপিসোড ড্রপডাউন শো করবে)
+# ১. ডাউনলোড মেইন হাব
 @web_app.route('/download/<movie_id>')
 @web_app.route(f'{PREFIX}/download/<movie_id>')
 def movie_download_hub(movie_id):
@@ -437,7 +438,7 @@ def movie_download_hub(movie_id):
         
     return render_template_string(HUB_HTML, movie=movie, prefix=PREFIX)
 
-# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (এখানে ক্লিক করার পর টাইমার চলবে)
+# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ (ফিক্সড)
 @web_app.route('/download/<movie_id>/<quality>')
 @web_app.route(f'{PREFIX}/download/<movie_id>/<quality>')
 def movie_download_landing(movie_id, quality):
@@ -446,9 +447,8 @@ def movie_download_landing(movie_id, quality):
     if not movie:
         return "Requested content not found.", 404
         
-    # ইন-মেমোরি গ্লোবাল ভেরিয়েবল থেকে সেটিংস রিড (লিংক ডুপ্লিকেট এবং কোয়েব রিসেট বাগ ফিক্সড)
-    global system_settings
-    settings = system_settings if system_settings else load_settings()
+    # গ্লোবাল ভেরিয়েবলের বদলে সরাসরি ডাটাবেজ/ফাইল থেকে ফ্রেশ সেটিংস রিড করা হচ্ছে
+    settings = load_settings()
     
     direct_links = settings.get('direct_links', [])
     selected_direct_link = random.choice(direct_links) if direct_links else ""
@@ -1162,7 +1162,6 @@ EDIT_HTML = """
 """
 
 # ==================== নতুন কোয়ালিটি হাব টেমপ্লেট (HUB_HTML) ====================
-# এটি মূলত /download/[MOVIE_ID] লিংকে যাওয়ার পর সম্পূর্ণ ও চমৎকার বাটন সিলেকশন প্রদর্শন করবে।
 
 HUB_HTML = """
 <!DOCTYPE html>
@@ -1271,7 +1270,6 @@ HUB_HTML = """
             background: rgba(255,255,255,0.08);
         }
 
-        /* --- প্রফেশনাল ডাউনলোড বাটন গ্রিড --- */
         .download-grid {
             display: flex;
             flex-direction: column;
@@ -1312,7 +1310,6 @@ HUB_HTML = """
             margin-top: 2px;
         }
 
-        /* বাটন স্টাইলিং */
         .premium-btn {
             display: inline-flex;
             align-items: center;
@@ -1353,7 +1350,6 @@ HUB_HTML = """
         }
         .btn-royal:hover { box-shadow: 0 6px 20px rgba(177, 86, 255, 0.45); }
 
-        /* --- সিরিজ সিজন-এপিসোর্ড সিস্টেম --- */
         .season-tabs {
             display: flex;
             gap: 8px;
@@ -1441,7 +1437,6 @@ HUB_HTML = """
 
         <div class="download-grid">
             {% if movie.type == 'movie' %}
-                <!-- একক মুভির কোয়ালিটি বাটনসমূহ -->
                 {% if movie.dl_links.get('480p') %}
                 <div class="download-row">
                     <div class="quality-info">
@@ -1472,7 +1467,6 @@ HUB_HTML = """
                 </div>
                 {% endif %}
             {% else %}
-                <!-- ওয়েব সিরিজ এপিসোড সিলেকশন উইজেট (এনিমেশনসহ) -->
                 {% if not movie.get('episodes') %}
                     <p class="text-muted small">No episodes uploaded yet.</p>
                 {% else %}
@@ -1604,7 +1598,6 @@ DOWNLOAD_HTML = """
             letter-spacing: 0.5px;
         }
 
-        /* প্রিমিয়াম সার্কুলার প্রগ্রেস টাইমার উইজেট */
         .progress-ring-container {
             position: relative;
             width: 120px;
@@ -1639,7 +1632,6 @@ DOWNLOAD_HTML = """
             font-weight: 600;
         }
 
-        /* প্রিমিয়াম নিয়ন গ্লোয়িং ডাউনলোড বাটন */
         .btn-download {
             display: none;
             align-items: center;
@@ -1682,7 +1674,6 @@ DOWNLOAD_HTML = """
         <div class="movie-title">{{movie.movie_data.title}}</div>
         <div class="quality-badge">Selected: {{quality}}</div>
 
-        <!-- প্রগ্রেস সার্কেল উইজেট -->
         <div id="countdownBox">
             <div class="progress-ring-container">
                 <svg class="progress-ring" width="120" height="120">
@@ -1694,7 +1685,6 @@ DOWNLOAD_HTML = """
             <div class="status-text" id="statusLabel">Securing connection... Please wait</div>
         </div>
 
-        <!-- প্রিমিয়াম ডাউনলোড বাটন -->
         <button id="downloadBtn" class="btn-download" onclick="triggerDownload()">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.53c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
             ⚡ Get Download File (Telegram)
@@ -1703,7 +1693,6 @@ DOWNLOAD_HTML = """
         <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity:0.6;">⚠️ Disable adblocker if downloading is interrupted.</p>
     </div>
 
-    <!-- SVG গ্রাডিয়েন্ট ডেফিনিশন -->
     <svg width="0" height="0">
         <defs>
             <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
