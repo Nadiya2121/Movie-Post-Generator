@@ -22,11 +22,6 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
-
-OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/11047054') 
-REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
-IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70a') 
-
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
@@ -69,18 +64,49 @@ def load_movies_db():
     return []
 
 def save_movie_to_db(movie_id, data):
-    data['_id'] = movie_id
-    if db_mongo is not None:
-        try:
-            db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-            return
-        except Exception:
-            pass
-    
-    # JSON Fallback
+    """মুভি সংরক্ষণের সময় একই টাইটেল থাকলে লিংক অটো-মার্জ করবে"""
     movies = load_movies_db()
-    movies = [m for m in movies if m.get('_id') != movie_id]
-    movies.append(data)
+    existing_movie = None
+    
+    # টাইটেল চেক করে আগের পোস্ট আছে কি না চেক করুন
+    for m in movies:
+        if m['movie_data']['title'] == data['movie_data']['title']:
+            existing_movie = m
+            break
+            
+    if existing_movie:
+        # আগের মুভি পাওয়া গেছে, এখন নতুন ডাউনলোড কোয়ালিটি লিংকগুলো মার্জ করুন
+        if data['type'] == 'movie':
+            for quality, link in data['dl_links'].items():
+                if link:  # কেবল নতুন পাঠানো ভ্যালিড লিংকটি রিপ্লেস বা এড হবে
+                    existing_movie['dl_links'][quality] = link
+        else: # ওয়েব সিরিজের ক্ষেত্রে নতুন এপিসোড এপেন্ড হবে
+            existing_ep_names = [ep['name'] for ep in existing_movie['episodes']]
+            for ep in data['episodes']:
+                if ep['name'] not in existing_ep_names:
+                    existing_movie['episodes'].append(ep)
+                    
+        # ডাটাবেজ আপডেট
+        if db_mongo is not None:
+            try:
+                db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie})
+                return
+            except Exception:
+                pass
+        
+        movies = [m for m in movies if m.get('_id') != existing_movie['_id']]
+        movies.append(existing_movie)
+    else:
+        # একদম নতুন পোস্ট
+        data['_id'] = movie_id
+        if db_mongo is not None:
+            try:
+                db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
+                return
+            except Exception:
+                pass
+        movies.append(data)
+        
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
@@ -96,7 +122,7 @@ def delete_movie_from_db(movie_id):
     with open("movies_db.json", "w", encoding="utf-8") as f:
         json.dump(movies, f, indent=4, ensure_ascii=False)
 
-# CORS হেডার যুক্ত করা
+# CORS হেডার যুক্ত করা (ব্লগার ডোমেইন থেকে রিকোয়েস্ট অ্যালাও করার জন্য)
 @web_app.after_request
 def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
@@ -239,7 +265,7 @@ def edit_movie(movie_id):
         movie['movie_data']['poster'] = request.form.get('poster')
         movie['movie_data']['backdrop'] = request.form.get('backdrop')
         movie['movie_data']['rating'] = request.form.get('rating')
-        movie['movie_data']['lang'] = request.form.get('lang')  # ল্যাঙ্গুয়েজ ট্যাগ বাটন এডিট
+        movie['movie_data']['lang'] = request.form.get('lang')
         movie['movie_data']['genres'] = request.form.get('genres')
         movie['movie_data']['plot'] = request.form.get('plot')
         screens = request.form.get('screenshots', '').split('\n')
@@ -308,14 +334,14 @@ def detect_file_quality(filename):
     if "1080" in fn_lower: return "1080p"
     elif "720" in fn_lower: return "720p"
     elif "480" in fn_lower: return "480p"
-    return "720p"  # কোনো নির্দিষ্ট কি-ওয়ার্ড না পেলে ডিফল্ট হিসেবে 720p সেট হবে
+    return "720p"  # ডিফল্ট 720p
 
 @app.on_message(filters.command("start") & filters.private)
 async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
-    # স্টার্ট লিংক (টেলিগ্রামের মাধ্যমে ফাইল বিতরণ)
+    # স্টার্ট লিংক ডিকোড ও বিতরণ
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -329,7 +355,7 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
-    # অ্যাডমিন এক ক্লিকে প্যানেলে অ্যাক্সেস করার ইন্টিগ্রেটেড বাটন
+    # অ্যাডমিন প্যানেল এবং লাইভ সাইট বাটন
     admin_btn = []
     if chat_id == OWNER_ID:
         admin_btn = [
@@ -347,7 +373,7 @@ async def handle_start(client, message):
         "👉 **অটো-পোস্টিং নিয়ম:** যেকোনো মুভি/সিরিজের ডাউনলোড ফাইল সরাসরি এই চ্যাটে ফরোয়ার্ড করে দিন। "
         "বট স্বয়ংক্রিয়ভাবে ফাইলের নাম থেকে মুভি সনাক্ত করবে, TMDB থেকে কভার ও স্ক্রিনশট কালেক্ট করবে এবং "
         "সাথে সাথে সরাসরি মুভি সাইটে ডাইনামিকভাবে পোস্ট পাবলিশ করে দেবে।",
-        reply_markup=InlineKeyboardMarkup(admin_btn) if markup else InlineKeyboardMarkup(admin_btn)
+        reply_markup=InlineKeyboardMarkup(admin_btn)
     )
 
 # --- মূল এসিঙ্ক্রোনাস অটোমেটিক ফাইল পোস্টিং হ্যান্ডলার ---
@@ -383,7 +409,6 @@ async def auto_file_poster_handler(client, message):
                 results = res_json.get('results', [])
                 if results:
                     top_result = results[0]
-                    # ফুল ডাটা ও স্ক্রিনশট ফেচ করার কোড
                     m_id = top_result['id']
                     detail_url = f"https://api.themoviedb.org/3/movie/{m_id}?api_key={TMDB_API_KEY}&append_to_response=images"
                     async with session.get(detail_url) as d_resp:
@@ -402,10 +427,10 @@ async def auto_file_poster_handler(client, message):
                             movie_meta = {
                                 'title': title_with_year, 'poster': poster, 'backdrop': backdrop,
                                 'rating': rating, 'genres': genres, 'plot': plot, 'screenshots': screenshots,
-                                'lang': 'N/A' # ডিফল্ট ল্যাঙ্গুয়েজ ট্যাগ, এডমিন প্যানেল থেকে চেঞ্জ করবেন
+                                'lang': 'N/A' # ডিফল্ট ল্যাঙ্গুয়েজ ট্যাগ
                             }
 
-    # যদি TMDB তে কোনো তথ্য না পাওয়া যায় (ফলব্যাক মেকানিজম - ক্র্যাশ প্রতিরোধক)
+    # যদি TMDB তে কোনো তথ্য না পাওয়া যায় (ফলব্যাক মেকানিজম)
     if not movie_meta:
         movie_meta = {
             'title': cleaned_title,
@@ -561,7 +586,7 @@ DASHBOARD_HTML = """
                     <td><span class="badge bg-info text-dark font-weight-bold">{{m.movie_data.lang}}</span></td>
                     <td>{{m.movie_data.genres}}</td>
                     <td>
-                        <a href="/admin/edit/{{m._id}}" class="btn btn-sm btn-edit">Edit/Tag Sync</a>
+                        <a href="/admin/edit/{{m._id}}" class="btn btn-sm btn-edit">Edit/Sync</a>
                         <a href="/admin/delete/{{m._id}}" onclick="return confirm('মুছে ফেলতে চান?')" class="btn btn-sm btn-danger">Delete</a>
                     </td>
                 </tr>
