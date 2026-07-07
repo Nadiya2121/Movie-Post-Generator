@@ -6,6 +6,7 @@ import io
 import asyncio
 import re
 import html
+import time
 import urllib.parse
 import aiohttp
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
@@ -25,7 +26,7 @@ DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023))
 AUTO_DELETE_DELAY = 300 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-# Koyeb সাব-পাথ ফ্রেমওয়ার্ক ডিফাইন
+# Koyeb সাব-পাথ ফ্রেমওয়ার্ক
 MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
 PREFIX = "/view/Movie-Post-Generator"
 
@@ -49,7 +50,37 @@ if MONGO_URI:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
         db_mongo = None
 
-# --- ডেটা রিড ও রাইট মেকানিজম ---
+# --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
+def load_settings():
+    default_settings = {
+        'direct_links': ["https://omg10.com/4/11047054"],
+        'revenue_share': 20,
+        'download_timer': 5  # ডিফল্ট ৫ সেকেন্ডের টাইমার
+    }
+    if db_mongo is not None:
+        try:
+            config = db_mongo['settings'].find_one({'_id': 'system_config'})
+            if config: return config
+        except Exception: pass
+    if os.path.exists("settings.json"):
+        try:
+            with open("settings.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception: pass
+    return default_settings
+
+def save_settings(settings):
+    if db_mongo is not None:
+        try:
+            db_mongo['settings'].update_one({'_id': 'system_config'}, {'$set': settings}, upsert=True)
+            return
+        except Exception: pass
+    with open("settings.json", "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=4, ensure_ascii=False)
+
+system_settings = load_settings()
+
+# --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
 def load_movies_db():
     if db_mongo is not None:
         try:
@@ -68,13 +99,17 @@ def save_movie_to_db(movie_id, data):
     movies = load_movies_db()
     existing_movie = None
     
-    # টাইটেল চেক করে আগের পোস্ট আছে কি না চেক করুন
+    # টাইটেল চেক করে আগের পোস্ট খোঁজা
     for m in movies:
-        if m['movie_data']['title'] == data['movie_data']['title']:
+        if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
             existing_movie = m
             break
             
+    # টাইমস্ট্যাম্প যুক্ত করা যাতে নতুন আপডেট হওয়া পোস্ট সবার ওপরে চলে যায়
+    current_time = time.time()
+            
     if existing_movie:
+        # আগের মুভি পাওয়া গেছে, কোয়ালিটি লিংকগুলো মার্জ করুন
         if data['type'] == 'movie':
             for quality, link in data['dl_links'].items():
                 if link:
@@ -85,6 +120,8 @@ def save_movie_to_db(movie_id, data):
                 if ep['name'] not in existing_ep_names:
                     existing_movie['episodes'].append(ep)
                     
+        existing_movie['updated_at'] = current_time # সর্বশেষ আপডেটের সময় আপডেট
+        
         if db_mongo is not None:
             try:
                 db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie})
@@ -95,7 +132,9 @@ def save_movie_to_db(movie_id, data):
         movies = [m for m in movies if m.get('_id') != existing_movie['_id']]
         movies.append(existing_movie)
     else:
+        # একদম নতুন পোস্ট
         data['_id'] = movie_id
+        data['updated_at'] = current_time
         if db_mongo is not None:
             try:
                 db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
@@ -133,6 +172,8 @@ def add_cors_headers(response):
 @web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
 def get_all_movies_api():
     movies = load_movies_db()
+    # সর্বশেষ আপডেটেড পোস্টগুলো সবার উপরে রাখতে সর্টিং (updated_at desc)
+    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
     return jsonify(movies)
 
 @web_app.route('/api/settings', methods=['GET'])
@@ -140,34 +181,6 @@ def get_all_movies_api():
 def get_settings_api():
     settings = load_settings()
     return jsonify(settings)
-
-def load_settings():
-    default_settings = {
-        'direct_links': ["https://omg10.com/4/11047054"],
-        'revenue_share': 20
-    }
-    if db_mongo is not None:
-        try:
-            config = db_mongo['settings'].find_one({'_id': 'system_config'})
-            if config: return config
-        except Exception: pass
-    if os.path.exists("settings.json"):
-        try:
-            with open("settings.json", "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception: pass
-    return default_settings
-
-def save_settings(settings):
-    if db_mongo is not None:
-        try:
-            db_mongo['settings'].update_one({'_id': 'system_config'}, {'$set': settings}, upsert=True)
-            return
-        except Exception: pass
-    with open("settings.json", "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=4, ensure_ascii=False)
-
-system_settings = load_settings()
 
 @web_app.route('/api/tmdb-fetch', methods=['POST'])
 @web_app.route(f'{PREFIX}/api/tmdb-fetch', methods=['POST'])
@@ -214,8 +227,32 @@ def tmdb_fetch_api():
         "rating": rating, "genres": genres, "plot": plot, "screenshots": screenshots
     })
 
+# অ্যাডমিন প্যানেল থেকে লাইভ কুয়েরি সার্চ করার জন্য অতিরিক্ত এপিআই
+@web_app.route('/api/tmdb-search', methods=['POST'])
+@web_app.route(f'{PREFIX}/api/tmdb-search', methods=['POST'])
+def tmdb_search_endpoint():
+    if not session.get('admin_logged_in'):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    query = data.get('query', '').strip()
+    is_tv = data.get('is_tv', False)
+    
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
+    
+    async def fetch():
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url) as r:
+                if r.status == 200: return await r.json()
+        return None
+        
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    res = loop.run_until_complete(fetch())
+    return jsonify(res.get('results', []) if res else [])
 
-# ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ (ডাইনামিক সাব-পাথ সমর্থিত) ====================
+
+# ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
 
 @web_app.route('/')
 @web_app.route(f'{PREFIX}/')
@@ -239,6 +276,7 @@ def admin_dashboard():
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
     movies = load_movies_db()
+    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) # ড্যাশবোর্ডেও লেটেস্ট সবার উপরে
     settings = load_settings()
     return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, prefix=PREFIX)
 
@@ -251,7 +289,8 @@ def admin_save_settings():
     links_list = [l.strip() for l in links_raw.split('\n') if l.strip().startswith('http')]
     settings = {
         'direct_links': links_list,
-        'revenue_share': int(request.form.get('revenue_share', 20))
+        'revenue_share': int(request.form.get('revenue_share', 20)),
+        'download_timer': int(request.form.get('download_timer', 5))  # টাইমার ডাটা সেভ
     }
     save_settings(settings)
     global system_settings
@@ -283,6 +322,7 @@ def edit_movie(movie_id):
         if movie.get('type') == 'series':
             movie['season'] = request.form.get('season')
             
+        movie['updated_at'] = time.time()  # এডিট করলেও পোস্ট সবার ওপরে চলে যাবে
         save_movie_to_db(movie_id, movie)
         return redirect(f"{PREFIX}/admin")
         
@@ -345,11 +385,28 @@ def detect_file_quality(filename):
     elif "480" in fn_lower: return "480p"
     return "720p"
 
+# ফাইলটি ডাটাবেজ চ্যানেলে সংরক্ষণ করার হেল্পার ফাংশন
+async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
+    global http_session
+    if not http_session: return None
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+        payload = {"chat_id": DATABASE_CHANNEL_ID, "caption": caption, "parse_mode": "HTML"}
+        if file_type == 'document': payload["document"] = file_id
+        else: payload["video"] = file_id
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
+        if res.get('ok'): return res['result']['message_id']
+    except Exception as e:
+         print(f"Forward to DB failed: {e}")
+    return None
+
 @app.on_message(filters.command("start") & filters.private)
 async def handle_start(client, message):
     chat_id = message.chat.id
     text = message.text.strip() if message.text else ""
     
+    # স্টার্ট লিংক ডিকোড ও বিতরণ
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
@@ -363,6 +420,7 @@ async def handle_start(client, message):
                 await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
         return
 
+    # অ্যাডমিন প্যানেল এবং লাইভ সাইট বাটন
     admin_btn = []
     if chat_id == OWNER_ID:
         admin_btn = [
@@ -421,8 +479,8 @@ async def auto_file_poster_handler(client, message):
                             title_with_year = f"{details.get('title')} ({release_year})"
                             rating = f"{details.get('vote_average'):.1f}/10" if details.get('vote_average') else 'N/A'
                             genres = ", ".join([g['name'] for g in details.get('genres', [])])
-                            poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else 'https://via.placeholder.com/300x450'
-                            backdrop = f"https://image.tmdb.org/t/p/original{details.get('backdrop_path')}" if details.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
+                            poster = f"https://image.tmdb.org/t/p/w500{res_data.get('poster_path')}" if res_data.get('poster_path') else 'https://via.placeholder.com/300x450'
+                            backdrop = f"https://image.tmdb.org/t/p/original{res_data.get('backdrop_path')}" if res_data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
                             plot = details.get('overview', 'No description available.')
                             backdrops = details.get('images', {}).get('backdrops', [])
                             screenshots = [f"https://image.tmdb.org/t/p/w780{bg.get('file_path')}" for bg in backdrops[:4] if bg.get('file_path')]
@@ -558,7 +616,6 @@ DASHBOARD_HTML = """
         .dashboard-header { background: #0f111a; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 15px 10px; margin-bottom: 25px; }
         .card { background: #0f111a; border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; color: #fff; }
         
-        /* মডার্ন মোবাইল-বান্ধব কার্ড ভিউ */
         .movie-card-row {
             display: flex;
             background: #0f111a;
@@ -584,7 +641,6 @@ DASHBOARD_HTML = """
         
         .tag-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold; display: inline-block; }
         
-        /* টাচ-ফ্রেন্ডলি অ্যাকশন বাটনসমূহ */
         .action-btn-group { display: flex; gap: 8px; margin-top: 10px; }
         .action-btn { flex: 1; padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; text-align: center; text-decoration: none !important; }
         .btn-edit { background: linear-gradient(135deg, #0284c7, #0ea5e9); color: #fff; }
@@ -605,27 +661,33 @@ DASHBOARD_HTML = """
     </div>
 
     <div class="container">
-        <!-- বিজ্ঞাপন কন্ট্রোল উইজেট -->
+        <!-- বিজ্ঞাপন ও কাস্টম টাইমার কন্ট্রোল উইজেট -->
         <div class="card p-3 mb-4 shadow">
-            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Direct Link Rotation (স্প্যাম প্রোটেকশন)</h6>
+            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Direct Link &amp; Premium Timer Configuration</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
                 <div class="mb-3">
                     <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ (প্রতি লাইনে একটি লিংক):</label>
                     <textarea name="direct_links" class="form-control" rows="3" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
                 </div>
+                
+                <div class="mb-3">
+                    <label class="form-label text-info font-weight-bold small">⏱️ ডাউনলোড প্রগ্রেস টাইমার (সেকেন্ডে):</label>
+                    <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
+                    <small class="text-muted small">ইউজার ডাউনলোডে ক্লিক করার পর কত সেকেন্ড কাউন্টডাউন টাইমার চলবে তা সেট করুন।</small>
+                </div>
+
                 <div class="mb-3" style="display:none;">
                     <input type="hidden" name="revenue_share" value="{{settings.revenue_share}}">
                 </div>
-                <button type="submit" class="btn btn-warning w-100 text-dark py-2" style="border-radius:8px; font-weight: 800; font-size:13px;">আপডেট লিংক রোটেশন</button>
+                <button type="submit" class="btn btn-warning w-100 text-dark py-2" style="border-radius:8px; font-weight: 800; font-size:13px;">আপডেট সেটিংস ও লিংক রোটেশন</button>
             </form>
         </div>
 
-        <!-- সার্চ উইজেট -->
         <div class="mb-4">
             <input type="text" id="searchBox" class="form-control py-3 px-4" placeholder="🔍 সার্চ মুভি বা সিরিজ...">
         </div>
 
-        <!-- লাইভ কার্ড লিস্ট (মোবাইল বান্ধব) -->
+        <!-- লাইভ কার্ড লিস্ট -->
         <div id="movieCardList">
             {% for m in movies %}
             <div class="movie-card-row shadow-sm">
@@ -637,7 +699,7 @@ DASHBOARD_HTML = """
                     <span class="tag-badge">🗣️ {{m.movie_data.lang}}</span>
                     
                     <div class="action-btn-group">
-                         <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Tag Sync</a>
+                         <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Live Sync</a>
                          <a href="{{prefix}}/admin/delete/{{m._id}}" onclick="return confirm('মুছে ফেলতে চান?')" class="action-btn btn-delete">Delete</a>
                     </div>
                 </div>
@@ -675,26 +737,37 @@ EDIT_HTML = """
         .form-label { font-size: 13px; color: #94a3b8; font-weight: bold; margin-bottom: 6px; }
         .btn-success { background: linear-gradient(135deg, #059669, #10b981); border: none; font-weight: bold; border-radius: 10px; padding: 14px; }
         .btn-secondary { background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; padding: 14px; }
+        
+        /* সার্চ সাজেশনের নতুন মোবাইল ফ্রেন্ডলি থিম */
+        .live-search-container { background: #121520; border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
+        .search-results-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; }
+        .search-result-item { width: 100px; flex-shrink: 0; cursor: pointer; text-align: center; }
+        .search-result-item img { width: 100%; height: 140px; border-radius: 8px; object-fit: cover; border: 1.5px solid rgba(255,255,255,0.1); transition: 0.2s; }
+        .search-result-item img:hover { border-color: #fbbf24; transform: scale(1.05); }
+        .search-result-title { font-size: 10px; color: #cbd5e1; margin-top: 5px; height: 30px; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
     </style>
 </head>
 <body>
     <div class="container">
         <h4 class="text-info mb-3" style="font-weight: 800;">🛠️ এডিট ও ল্যাঙ্গুয়েজ আপডেট</h4>
         
-        <!-- TMDB কুইক সিঙ্ক টুল -->
-        <div class="form-card mb-4" style="background-color: #121624;">
-            <h6 class="text-warning mb-2" style="font-weight: 800;">⚡ TMDB কুইক সিঙ্ক (হট-ফিক্সার)</h6>
-            <div class="input-group">
-                <input type="text" id="tmdbInput" class="form-control" placeholder="সঠিক TMDB ID বা লিঙ্ক বসান">
-                <button type="button" id="syncBtn" class="btn btn-warning text-dark font-weight-bold">Sync & AutoFill</button>
+        <!-- ডাইনামিক লাইভ সার্চ কন্টেইনার (হট-ফিক্সার) -->
+        <div class="live-search-container">
+            <h6 class="text-warning mb-2" style="font-weight: 800;">🔍 TMDB ইনস্ট্যান্ট কুইক সার্চ এডিটর</h6>
+            <p class="text-muted small">মুভিটির সঠিক নাম লিখে "অনুসন্ধান" করুন এবং সঠিক পোস্টারটির উপর টাচ করলেই সব ডেটা পরিবর্তন হয়ে যাবে:</p>
+            <div class="input-group mb-3">
+                <input type="text" id="liveSearchQuery" class="form-control bg-dark text-white border-secondary" placeholder="মুভির নাম লিখুন...">
+                <button type="button" id="liveSearchBtn" class="btn btn-warning text-dark font-weight-bold">অনুসন্ধান</button>
             </div>
-            <div id="syncStatus" class="mt-2 small text-info"></div>
+            
+            <!-- রেজাল্ট গ্যালারি -->
+            <div id="liveSearchResults" class="search-results-grid" style="display: none;"></div>
         </div>
 
         <form action="{{prefix}}/admin/edit/{{movie._id}}" method="POST" class="form-card">
             <div class="mb-3">
                 <label class="form-label">মুভি টাইটেল:</label>
-                <input type="text" name="title" id="formTitle" class="form-control" value="{{movie.movie_data.title}}" required>
+                <input type="text" name="title" id="formTitle" class="form-control bg-dark text-white" value="{{movie.movie_data.title}}" required>
             </div>
             
             <div class="mb-3">
@@ -707,7 +780,7 @@ EDIT_HTML = """
                 <input type="text" name="poster" id="formPoster" class="form-control" value="{{movie.movie_data.poster}}">
             </div>
             <div class="mb-3">
-                <label class="form-label">ب্যবহারকারী ব্যানার লিঙ্ক (Landscape Backdrop):</label>
+                <label class="form-label">ব্যানার লিঙ্ক (Landscape Backdrop):</label>
                 <input type="text" name="backdrop" id="formBackdrop" class="form-control" value="{{movie.movie_data.backdrop}}">
             </div>
 
@@ -739,24 +812,66 @@ EDIT_HTML = """
     </div>
 
     <script>
-        document.getElementById('syncBtn').addEventListener('click', function() {
-            let val = document.getElementById('tmdbInput').value.trim();
-            if(!val) { alert("TMDB লিঙ্ক বা আইডি দিন!"); return; }
-            let statusDiv = document.getElementById('syncStatus');
-            statusDiv.innerHTML = "⏳ তথ্য সংগ্রহ করা হচ্ছে...";
+        // লাইভ সার্চ ইঞ্জিন লজিক
+        document.getElementById('liveSearchBtn').addEventListener('click', function() {
+            let query = document.getElementById('liveSearchQuery').value.trim();
+            if(!query) { alert("সার্চ করতে মুভির নাম লিখুন!"); return; }
+            
+            let resultContainer = document.getElementById('liveSearchResults');
+            resultContainer.style.display = "flex";
+            resultContainer.innerHTML = "<div style='color:#e2e8f0; font-size:12px; padding:10px;'>⏳ লোড হচ্ছে...</div>";
+            
+            fetch('{{prefix}}/api/tmdb-search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: query,
+                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                resultContainer.innerHTML = "";
+                if(data.length === 0) {
+                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কোনো ফলাফল পাওয়া যায়নি!</div>";
+                    return;
+                }
+                data.forEach(item => {
+                    let title = item.title || item.name;
+                    let year = (item.release_date || item.first_air_date || 'N/A').split('-')[0];
+                    let posterPath = item.poster_path ? 'https://image.tmdb.org/t/p/w185' + item.poster_path : 'https://via.placeholder.com/100x140?text=No+Poster';
+                    
+                    let div = document.createElement('div');
+                    div.className = "search-result-item";
+                    div.innerHTML = `
+                        <img src="${posterPath}" alt="Poster" onclick="autofillWithTmdId('${item.id}')">
+                        <div class="search-result-title">${title} (${year})</div>
+                    `;
+                    resultContainer.appendChild(div);
+                });
+            })
+            .catch(err => {
+                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:12px; padding:10px;'>❌ কানেশন ত্রুটি ঘটেছে!</div>";
+            });
+        });
+
+        // ওয়ান-ক্লিক অটো-ফিল লজিক
+        function autofillWithTmdId(id) {
+            let resultContainer = document.getElementById('liveSearchResults');
+            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে ১ সেকেন্ড অপেক্ষা করুন...</div>";
             
             fetch('{{prefix}}/api/tmdb-fetch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    tmdb_input: val,
+                    tmdb_input: id,
                     is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
                 })
             })
             .then(res => res.json())
             .then(data => {
                 if(data.error) {
-                    statusDiv.innerHTML = "❌ ত্রুটি: " + data.error;
+                    alert("ডাটা সিঙ্ক ব্যর্থ হয়েছে!");
                 } else {
                     document.getElementById('formTitle').value = data.title;
                     document.getElementById('formPoster').value = data.poster;
@@ -765,11 +880,14 @@ EDIT_HTML = """
                     document.getElementById('formGenres').value = data.genres;
                     document.getElementById('formPlot').value = data.plot;
                     if(data.screenshots) document.getElementById('formScreens').value = data.screenshots.join('\\n');
-                    statusDiv.innerHTML = "✅ সঠিক তথ্য অটোফিল হয়েছে! ল্যাঙ্গুয়েজ ট্যাগ চেক করে নিচের 'সংরক্ষণ করুন' বাটন চাপুন।";
+                    
+                    // সাকসেস মেসেজ ও ক্লোজ
+                    resultContainer.style.display = "none";
+                    alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
                 }
             })
-            .catch(err => { statusDiv.innerHTML = "❌ কানেকশন এরর!"; });
-        });
+            .catch(err => { alert("কানেকশন এরর!"); });
+        }
     </script>
 </body>
 </html>
