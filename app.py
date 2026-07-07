@@ -15,7 +15,7 @@ from pyrogram.enums import ParseMode
 
 # --- কনফিগারেশন এরিয়া ---
 API_ID = int(os.environ.get('API_ID', 29462738)) 
-API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24')) 
+API_HASH = os.environ.get('API_HASH', '297f51aaab99720a09e80273628c3c24') 
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8531734553:AAE8Ev_XmhH9zNXygZTF1PLpI0YuqTSMc28') 
 TMDB_API_KEY = os.environ.get('TMDB_API_KEY', '7dc544d9253bccc3cfecc1c677f69819') 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot') 
@@ -243,6 +243,11 @@ def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
 
+# Flask সার্ভার রান করার ফাংশন
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
 
 # ==================== পাইগ্রাম টেলিগ্রাম বট লজিক ====================
 
@@ -458,7 +463,7 @@ async def handle_all_messages(client, message):
             
             app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
             await client.send_message(chat_id, f"🎉 **মুভিটি সফলভাবে ডাটাবেজে পাবলিশ হয়েছে!**\n\n"
-                                              f"🔗 আপনার ব্লগার হোমপেজে এটি স্বয়ংক্রিয়ভাবে লাইভ হয়ে গেছে।\n"
+                                              f"🔗 আপনার blogger হোমপেজে এটি স্বয়ংক্রিয়ভাবে লাইভ হয়ে গেছে।\n"
                                               f"🛠️ কোনো ভুল সংশোধন করতে অ্যাডমিন প্যানেলে যান।")
             user_states[chat_id] = {}
 
@@ -516,16 +521,23 @@ async def publish_series_callback(client, callback_query):
     await callback_query.edit_message_text(f"🎉 **সিরিজটি সফলভাবে পাবলিশ হয়েছে!**\n\nএটি ব্লগার সাইটে লাইভ হয়ে গেছে।")
     user_states[chat_id] = {}
 
+# মেসেজ ডিলিট ডিলে এসিঙ্ক ফাংশন
+async def delete_messages_after_delay(chat_id, message_ids, delay):
+    await asyncio.sleep(delay)
+    for msg_id in message_ids:
+        try:
+            await app.delete_messages(chat_id, msg_id)
+        except Exception:
+            pass
 
-# ==================== এপিআই থেকে টেমপ্লেট তৈরির হেল্পারস্ ====================
-
-async def build_movie_html_code(draft):
-    """এটি এপিআই থেকে মুভির জন্য ডাইনামিক ব্লগার টেমপ্লেট সাজায় (পাবলিশের কাজে লাগে)"""
-    data = draft['movie_data']
-    links = draft.get('dl_links', {})
-    
-    # বাকি বাটন স্ক্রিপ্ট মেকানিজম...
-    return f"<!-- MOVIE POST TEMPLATE CONTENT -->"
+# ল্যাঙ্গুয়েজ সিলেক্টর UI
+async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা সিলেক্ট করুন:"):
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
+        [InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_Bangla"), InlineKeyboardButton("🎙 Dual Audio (Hin-Eng)", callback_data="lang_Dual Audio (Hindi-English)")],
+        [InlineKeyboardButton("🎙 Multi Audio", callback_data="lang_Multi Audio"), InlineKeyboardButton("✏️ কাস্টম টাইপ করুন", callback_data="lang_custom")]
+    ])
+    await client.send_message(chat_id, text, reply_markup=markup)
 
 
 # ==================== এডমিন প্যানেল HTML টেমপ্লেটস ====================
