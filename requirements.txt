@@ -1,8 +1,7 @@
-pyrogram==2.0.106
-TgCrypto==1.2.5
-requests==2.31.0
-Flask==2.3.2
-gunicorn==20.1.0
-pymongo==4.4.1
-dnspython==2.3.0
+flask
+pyrogram
+tgcrypto
+pymongo[srv]
+dnspython
 aiohttp
+requests
