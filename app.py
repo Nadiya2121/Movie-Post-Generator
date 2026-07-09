@@ -964,7 +964,7 @@ DASHBOARD_HTML = """
         </div>
         {% endif %}
 
-        <!--システム ডাইনামিক কনফিগারেশন উইজেট -->
+        <!-- সিস্টেম ডাইনামিক কনফিগারেশন উইজেট -->
         <div class="card p-3 mb-4 shadow">
             <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Settings &amp; Dynamic Integration Configuration</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
@@ -1081,12 +1081,12 @@ EDIT_HTML = """
         .form-control { background-color: #161824 !important; border-color: rgba(255,255,255,0.08) !important; color: #fff !important; border-radius: 10px; padding: 12px; }
         .form-label { font-size: 13px; color: #94a3b8; font-weight: bold; margin-bottom: 6px; }
         .btn-success { background: linear-gradient(135deg, #059669, #10b981); border: none; font-weight: bold; border-radius: 10px; padding: 14px; }
-        .btn-secondary { background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 10px; padding: 14px; }
+        .btn-secondary { background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; border-radius: 10px; padding: 14px; }
         
         .live-search-container { background: #121520; border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
         .search-results-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; }
         .search-result-item { width: 100px; flex-shrink: 0; cursor: pointer; text-align: center; }
-        .search-result-item img { width: 100%; height: 140px; border-radius: 8px; object-fit: cover; border: 1.5px solid rgba(255,255,255,0.1); transition: 0.2s; }
+        .search-result-item img { width: 100%; height: 140px; border-radius: 8px; object-fit: cover; border: 1.5px solid rgba(255, 255, 255, 0.1); transition: 0.2s; }
         .search-result-item img:hover { border-color: #fbbf24; transform: scale(1.05); }
         .search-result-title { font-size: 10px; color: #cbd5e1; margin-top: 5px; height: 30px; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
     </style>
@@ -1313,7 +1313,7 @@ HUB_HTML = """
             font-family: 'Plus Jakarta Sans', sans-serif;
             min-height: 100vh;
             margin: 0;
-            padding: 40px 20px;
+            padding: 40px 15px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1327,54 +1327,54 @@ HUB_HTML = """
             background-image: url('{{movie.movie_data.backdrop}}');
             background-size: cover;
             background-position: center;
-            filter: blur(50px) brightness(0.2);
+            filter: blur(50px) brightness(0.15);
             z-index: -1;
         }
 
         .movie-hub-card {
-            background: rgba(13, 19, 33, 0.75);
-            backdrop-filter: blur(20px);
+            background: rgba(13, 19, 33, 0.8);
+            backdrop-filter: blur(25px);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 24px;
             width: 100%;
             max-width: 580px;
-            padding: 30px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            padding: 25px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
             text-align: center;
         }
 
         .movie-poster {
-            width: 130px;
-            height: 185px;
-            border-radius: 16px;
+            width: 110px;
+            height: 160px;
+            border-radius: 12px;
             object-fit: cover;
             border: 2px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .movie-title {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 800;
             letter-spacing: -0.5px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             line-height: 1.3;
         }
 
         .meta-tags {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
             justify-content: center;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
 
         .meta-badge {
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 5px 12px;
-            border-radius: 30px;
-            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 10px;
             font-weight: 600;
             color: #94a3b8;
         }
@@ -1640,7 +1640,7 @@ HUB_HTML = """
                 ১. প্রথমে উপরের স্ক্রিনশট দেখে ভিডিওর রিয়েল কোয়ালিটি যাচাই করে নিন।<br>
                 ২. নিচের তালিকা থেকে আপনার পছন্দের কোয়ালিটির ডানপাশের <b>Download</b> বোতামে ক্লিক করুন।<br>
                 ৩. পরবর্তী পেজে থাকা নিয়ন প্রগ্রেস টাইমারটি শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।<br>
-                ４. ডাউনলোড বোতামে প্রথম ক্লিকে বিজ্ঞাপন খুললে সেটি কেটে দিয়ে পুনরায় ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।
+                ৪. ডাউনলোড বোতামে প্রথম ক্লিকে বিজ্ঞাপন খুললে সেটি কেটে দিয়ে পুনরায় ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।
             </div>
         </div>
 
