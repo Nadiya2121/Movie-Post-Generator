@@ -70,12 +70,16 @@ def load_settings(force_reload=False):
         'update_channel_url': "https://t.me/BDMovieZone",
         'group_channel_url': "https://t.me/BDMovieZoneGroup",
         'custom_caption_template': (
-            "🎬 <b>{title}</b>\n\n"
+            "🎬 <b>{title}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             "🗣️ Language: <b>{lang}</b>\n"
             "🎭 Genres: <b>{genres}</b>\n"
-            "💿 Quality: <b>{quality}</b>\n\n"
-            "⚠️ <i>কপিরাইটের কারণে ফাইলটি আগামী ৫ মিনিটের মধ্যে ডিলিট হয়ে যাবে। "
-            "এখনই ফাইলটি আপনার Saved Messages-এ ফরোয়ার্ড করে রাখুন।</i>"
+            "💿 Quality: <b>{quality}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️ <b>জরুরি ডাউনলোড নির্দেশিকা (বাংলায়):</b>\n"
+            "১. কপিরাইটের কারণে ফাইলটি আগামী <b>৫ মিনিটের মধ্যে</b> রিমুভ হয়ে যাবে।\n"
+            "২. রিমুভ হওয়ার আগেই এই ফাইলের ওপর রাইট ক্লিক করে (কিংবা ৩-ডটে চাপ দিয়ে) ফাইলটি আপনার <b>Saved Messages</b>-এ ফরোয়ার্ড করে রাখুন।\n"
+            "৩. ফরোয়ার্ড করে রাখলে ফাইলটি ডিলিট হওয়ার পরও আপনার কাছে আজীবন থেকে যাবে।"
         )
     }
     
@@ -641,23 +645,33 @@ async def handle_start(client, message):
                     title = m_meta.get('title', 'Unknown Movie')
                     lang = m_meta.get('lang', 'N/A')
                     genres = m_meta.get('genres', 'N/A')
+                    screenshots = m_meta.get('screenshots', [])
                 else:
                     title = db_message.document.file_name if db_message.document else (db_message.video.file_name or "Movie File")
                     lang = "N/A"
                     genres = "Movie"
+                    screenshots = []
                 
                 caption_tpl = settings.get('custom_caption_template', '')
                 if not caption_tpl:
                     caption_tpl = (
                         "🎬 <b>{title}</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
                         "🗣️ Language: <b>{lang}</b>\n"
                         "🎭 Genres: <b>{genres}</b>\n"
-                        "💿 Quality: <b>{quality}</b>\n\n"
-                        "⚠️ <i>কপিরাইটের কারণে ফাইলটি আগামী ৫ মিনিটের মধ্যে ডিলিট হয়ে যাবে। "
-                        "এখনই ফাইলটি আপনার Saved Messages-এ ফরোয়ার্ড করে রাখুন।</i>"
+                        "💿 Quality: <b>{quality}</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "⚠️ <b>জরুরি ডাউনলোড নির্দেশিকা (বাংলায়):</b>\n"
+                        "১. কপিরাইটের কারণে ফাইলটি আগামী <b>৫ মিনিটের মধ্যে</b> রিমুভ হয়ে যাবে।\n"
+                        "২. রিমুভ হওয়ার আগেই এই ফাইলের ওপর রাইট ক্লিক করে (কিংবা ৩-ডটে চাপ দিয়ে) ফাইলটি আপনার <b>Saved Messages</b>-এ ফরোয়ার্ড করে রাখুন।\n"
+                        "৩. ফরোয়ার্ড করে রাখলে ফাইলটি ডিলিট হওয়ার পরও আপনার কাছে আজীবন থেকে যাবে।"
                     )
                 
                 caption = caption_tpl.format(title=title, lang=lang, genres=genres, quality=matched_quality)
+                
+                if screenshots and len(screenshots) > 0:
+                    invisible_link = f"<a href='{screenshots[0]}'>&#8203;</a>"
+                    caption = invisible_link + caption
                 
                 buttons = [
                     [
@@ -1158,7 +1172,7 @@ EDIT_HTML = """
             resultContainer.style.display = "flex";
 
             let isUrl = input.includes("themoviedb.org");
-            let isOnlyNumber = /^[0-9]+$/.test(input); // Syntax warning resolved by replacing \d with [0-9]
+            let isOnlyNumber = /^[0-9]+$/.test(input); 
 
             if (isUrl || isOnlyNumber) {
                 resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
