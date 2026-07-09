@@ -669,6 +669,7 @@ async def handle_start(client, message):
                 
                 caption = caption_tpl.format(title=title, lang=lang, genres=genres, quality=matched_quality)
                 
+                # ইনবক্স ফাইল মেসেজে ১ম স্ক্রিনশটের মাধ্যমে রিচ প্রিভিউ এম্বেড করা
                 if screenshots and len(screenshots) > 0:
                     invisible_link = f"<a href='{screenshots[0]}'>&#8203;</a>"
                     caption = invisible_link + caption
@@ -963,7 +964,7 @@ DASHBOARD_HTML = """
         </div>
         {% endif %}
 
-        <!-- সিস্টেম ডাইনামিক কনফিগারেশন উইজেট -->
+        <!--システム ডাইনামিক কনফিগারেশন উইজেট -->
         <div class="card p-3 mb-4 shadow">
             <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Settings &amp; Dynamic Integration Configuration</h6>
             <form action="{{prefix}}/admin/save-settings" method="POST">
@@ -1172,7 +1173,7 @@ EDIT_HTML = """
             resultContainer.style.display = "flex";
 
             let isUrl = input.includes("themoviedb.org");
-            let isOnlyNumber = /^[0-9]+$/.test(input); 
+            let isOnlyNumber = /^[0-9]+$/.test(input); // Syntax warning resolved by replacing \d with [0-9]
 
             if (isUrl || isOnlyNumber) {
                 resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
@@ -1384,6 +1385,60 @@ HUB_HTML = """
             border-color: rgba(255, 191, 36, 0.2);
         }
 
+        /* প্রিমিয়াম স্ক্রিনশট গ্রিড সিএসএস */
+        .screenshots-section-title {
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #38bdf8;
+            margin: 25px 0 10px 0;
+            text-align: left;
+        }
+        .screenshots-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .screenshot-item {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1.5px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+        .screenshot-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* বাংলায় ডাউনলোড নির্দেশিকা কার্ড সিএসএস */
+        .guidelines-card {
+            background: rgba(251, 191, 36, 0.03);
+            border: 1px solid rgba(251, 191, 36, 0.12);
+            border-radius: 16px;
+            padding: 15px;
+            margin-bottom: 25px;
+            text-align: left;
+        }
+        .guidelines-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: #fbbf24;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .guidelines-text {
+            font-size: 11px;
+            color: #cbd5e1;
+            line-height: 1.5;
+        }
+
         .section-divider {
             font-size: 11px;
             text-transform: uppercase;
@@ -1564,6 +1619,29 @@ HUB_HTML = """
             <span class="meta-badge meta-rating">⭐️ {{movie.movie_data.rating}}</span>
             <span class="meta-badge">{{movie.movie_data.lang}}</span>
             <span class="meta-badge">{{movie.movie_data.genres}}</span>
+        </div>
+
+        <!-- কাস্টম ১: স্ক্রিনশট গ্রিড সেকশন (যদি ব্যাকএন্ডে স্ক্রিনশট ডাটা থাকে) -->
+        {% if movie.movie_data.screenshots %}
+        <div class="screenshots-section-title">📸 Movie Real Quality (Screenshots)</div>
+        <div class="screenshots-grid">
+            {% for screen in movie.movie_data.screenshots %}
+            <div class="screenshot-item">
+                <img src="{{screen}}" alt="Screenshot">
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- কাস্টম ২: বাংলায় সুন্দর প্রিমিয়াম ডাউনলোড নির্দেশিকা কার্ড -->
+        <div class="guidelines-card">
+            <div class="guidelines-title">⚠️ ডাউনলোড করার সহজ নিয়মাবলী:</div>
+            <div class="guidelines-text">
+                ১. প্রথমে উপরের স্ক্রিনশট দেখে ভিডিওর রিয়েল কোয়ালিটি যাচাই করে নিন।<br>
+                ২. নিচের তালিকা থেকে আপনার পছন্দের কোয়ালিটির ডানপাশের <b>Download</b> বোতামে ক্লিক করুন।<br>
+                ৩. পরবর্তী পেজে থাকা নিয়ন প্রগ্রেস টাইমারটি শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।<br>
+                ４. ডাউনলোড বোতামে প্রথম ক্লিকে বিজ্ঞাপন খুললে সেটি কেটে দিয়ে পুনরায় ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।
+            </div>
         </div>
 
         <div class="section-divider">Select Quality / Episode</div>
@@ -1796,6 +1874,31 @@ DOWNLOAD_HTML = """
             height: 20px;
             fill: currentColor;
         }
+
+        /* প্রিমিয়াম ডাউনলোড নির্দেশিকা বক্স সিএসএস */
+        .download-guide-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            padding: 15px;
+            margin-top: 25px;
+            text-align: left;
+        }
+        .download-guide-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: #00f2fe;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .download-guide-step {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
@@ -1818,10 +1921,19 @@ DOWNLOAD_HTML = """
             <div class="status-text" id="statusLabel">Securing connection... Please wait</div>
         </div>
 
+        <!-- ডাবল-ক্লিক মনিটাইজেশন সমৃদ্ধ ডাউনলোড বোতাম -->
         <button id="downloadBtn" class="btn-download" onclick="triggerDownload()">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.53c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
             ⚡ Get Download File (Telegram)
         </button>
+
+        <!-- বাংলায় ডাউনলোড নির্দেশিকা বক্স -->
+        <div class="download-guide-box">
+            <div class="download-guide-title">📥 ফাইলটি সংগ্রহের নিয়মাবলী:</div>
+            <div class="download-guide-step">১. উপরে টাইমার শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।</div>
+            <div class="download-guide-step">২. <b>Get Download File</b> বোতামে প্রথম ক্লিক করলে বিজ্ঞাপনের লিংক খুলবে।</div>
+            <div class="download-guide-step">৩. বিজ্ঞাপনের পেজটি বন্ধ করে পুনরায় একই বোতামে ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।</div>
+        </div>
         
         <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity:0.6;">⚠️ Disable adblocker if downloading is interrupted.</p>
     </div>
@@ -1867,17 +1979,20 @@ DOWNLOAD_HTML = """
             }
         }, 1000);
 
+        // --- ২-ধাপের ডাবল-ক্লিক রিডাইরেকশন স্ক্রিপ্ট ---
+        let clickCount = 0;
         function triggerDownload() {
             var adLink = "{{direct_link}}";
             var tgLink = "{{tg_bot_link}}";
             
-            if (adLink && adLink !== tgLink) {
-                window.open(adLink, "_blank");
-                setTimeout(() => {
-                    window.location.href = tgLink;
-                }, 1000); 
+            if (clickCount === 0 && adLink && adLink !== tgLink) {
+                clickCount = 1;
+                window.open(adLink, "_blank"); // প্রথম ক্লিক: স্পনসর লিংক খুলবে
+                const btn = document.getElementById('downloadBtn');
+                btn.innerHTML = "🟢 CLICK AGAIN FOR TELEGRAM FILE";
+                btn.style.background = "linear-gradient(135deg, #10b981 0%, #059669 100%)";
             } else {
-                window.location.href = tgLink;
+                window.location.href = tgLink; // দ্বিতীয় ক্লিক: টেলিগ্রাম ফাইলে নিয়ে যাবে
             }
         }
     </script>
