@@ -9,6 +9,7 @@ import html
 import time
 import urllib.parse
 import urllib.request
+import requests
 import aiohttp
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
 from pyrogram import Client, filters, idle
@@ -31,7 +32,10 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
 PREFIX = "/view/Movie-Post-Generator"
 
+# গ্লোবাল সেশন ম্যানেজার (দ্রুত কানেকশনের জন্য)
 http_session = None
+sync_http_session = requests.Session()  # Flask রাউটের জন্য অপ্টিমাইজড কানেকশন পুল
+
 web_app = Flask(__name__)
 web_app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey_bdmoviezone')
 
@@ -51,8 +55,11 @@ if MONGO_URI:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
         db_mongo = None
 
-# গ্লোবাল সেটিংস অবজেক্ট (ক্যাশিং এর জন্য)
+# গ্লোবাল সেটিংস ও মুভি ডেটা ক্যাশ অবজেক্ট (সার্ভার পারফরম্যান্স বৃদ্ধির জন্য)
 system_settings = None
+movies_cache_data = None
+movies_cache_time = 0
+CACHE_TTL = 30  # ৩০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে
 
 # --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
 def load_settings(force_reload=False):
@@ -121,23 +128,33 @@ def save_settings(settings):
 # Initial load
 system_settings = load_settings()
 
-# --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম ---
-def load_movies_db():
+# --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম (অপ্টিমাইজড ক্যাশ সহ) ---
+def load_movies_db(force_reload=False):
+    global movies_cache_data, movies_cache_time
+    current_time = time.time()
+    
+    if movies_cache_data is not None and (current_time - movies_cache_time < CACHE_TTL) and not force_reload:
+        return movies_cache_data
+
+    movies = []
     if db_mongo is not None:
         try:
-            return list(db_mongo['movies'].find({}))
+            movies = list(db_mongo['movies'].find({}))
         except Exception:
             pass
-    if os.path.exists("movies_db.json"):
+    if not movies and os.path.exists("movies_db.json"):
         try:
             with open("movies_db.json", "r", encoding="utf-8") as f:
-                return json.load(f)
+                movies = json.load(f)
         except Exception:
             pass
-    return []
+            
+    movies_cache_data = movies
+    movies_cache_time = current_time
+    return movies
 
 def save_movie_to_db(movie_id, data):
-    movies = load_movies_db()
+    movies = load_movies_db(force_reload=True)
     current_time = time.time()
     data['updated_at'] = current_time
 
@@ -157,16 +174,16 @@ def save_movie_to_db(movie_id, data):
     else:
         existing_by_title_index = -1
         for i, m in enumerate(movies):
-            if m['movie_data']['title'].lower().strip() == data['movie_data']['title'].lower().strip():
+            if m.get('movie_data', {}).get('title', '').lower().strip() == data.get('movie_data', {}).get('title', '').lower().strip():
                 existing_by_title_index = i
                 break
 
         if existing_by_title_index != -1:
             existing_movie = movies[existing_by_title_index]
             if data['type'] == 'movie':
-                for quality, link in data['dl_links'].items():
+                for quality, link in data.get('dl_links', {}).items():
                     if link:
-                        existing_movie['dl_links'][quality] = link
+                        existing_movie.setdefault('dl_links', {})[quality] = link
             else:
                 existing_ep_names = [ep['name'] for ep in existing_movie.get('episodes', [])]
                 for ep in data.get('episodes', []):
@@ -190,20 +207,34 @@ def save_movie_to_db(movie_id, data):
                 except Exception:
                     pass
         
-    with open("movies_db.json", "w", encoding="utf-8") as f:
-        json.dump(movies, f, indent=4, ensure_ascii=False)
+    try:
+        with open("movies_db.json", "w", encoding="utf-8") as f:
+            json.dump(movies, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
+    
+    # ডেটা পরিবর্তনের পর ক্যাশ সাথে সাথে আপডেট করা হচ্ছে
+    global movies_cache_data, movies_cache_time
+    movies_cache_data = movies
+    movies_cache_time = time.time()
 
 def delete_movie_from_db(movie_id):
     if db_mongo is not None:
         try:
             db_mongo['movies'].delete_one({'_id': movie_id})
-            return
         except Exception:
             pass
-    movies = load_movies_db()
+    movies = load_movies_db(force_reload=True)
     movies = [m for m in movies if m.get('_id') != movie_id]
-    with open("movies_db.json", "w", encoding="utf-8") as f:
-        json.dump(movies, f, indent=4, ensure_ascii=False)
+    try:
+        with open("movies_db.json", "w", encoding="utf-8") as f:
+            json.dump(movies, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
+    
+    global movies_cache_data, movies_cache_time
+    movies_cache_data = movies
+    movies_cache_time = time.time()
 
 # টেলিগ্রামে ডাইরেক্ট চ্যানেল পোস্ট পাঠানোর জন্য সিঙ্ক-হ্যান্ডলার
 def send_telegram_photo_sync(chat_id, photo_url, caption, reply_markup=None):
@@ -217,14 +248,9 @@ def send_telegram_photo_sync(chat_id, photo_url, caption, reply_markup=None):
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     
-    req = urllib.request.Request(
-        url, 
-        data=json.dumps(payload).encode('utf-8'), 
-        headers={'Content-Type': 'application/json'}
-    )
     try:
-        with urllib.request.urlopen(req, timeout=12) as response:
-            return json.loads(response.read().decode())
+        response = sync_http_session.post(url, json=payload, timeout=8)
+        return response.json()
     except Exception as e:
         print(f"Sync Telegram Post Failed: {e}")
         return {"ok": False, "description": str(e)}
@@ -239,12 +265,17 @@ def add_cors_headers(response):
 
 # ==================== এপিআই এন্ডপয়েন্ট ====================
 
+@web_app.route('/ping', methods=['GET'])
+@web_app.route(f'{PREFIX}/ping', methods=['GET'])
+def server_ping():
+    return jsonify({"status": "active", "timestamp": time.time()})
+
 @web_app.route('/api/movies', methods=['GET'])
 @web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
 def get_all_movies_api():
     movies = load_movies_db()
-    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
-    return jsonify(movies)
+    sorted_movies = sorted(movies, key=lambda x: x.get('updated_at', 0), reverse=True)
+    return jsonify(sorted_movies)
 
 @web_app.route('/api/settings', methods=['GET'])
 @web_app.route(f'{PREFIX}/api/settings', methods=['GET'])
@@ -261,6 +292,7 @@ def tmdb_fetch_api():
     tmdb_input = data.get('tmdb_input', '').strip()
     is_tv = data.get('is_tv', False)
     tmdb_id = tmdb_input
+    
     if "themoviedb.org" in tmdb_input:
         match = re.search(r"/(movie|tv)/(\d+)", tmdb_input)
         if match:
@@ -270,16 +302,13 @@ def tmdb_fetch_api():
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
     
-    async def fetch():
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url, timeout=10) as r:
-                if r.status != 200: return None
-                return await r.json()
-                
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    res_data = loop.run_until_complete(fetch())
-    if not res_data: return jsonify({"error": "Failed to fetch data"}), 400
+    try:
+        response = sync_http_session.get(url, timeout=8)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch data from TMDB"}), 400
+        res_data = response.json()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
         
     title = res_data.get('title') if not is_tv else res_data.get('name')
     release = res_data.get('release_date') if not is_tv else res_data.get('first_air_date')
@@ -309,16 +338,14 @@ def tmdb_search_endpoint():
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
     
-    async def fetch():
-        async with aiohttp.ClientSession() as s:
-            async with s.get(url) as r:
-                if r.status == 200: return await r.json()
-        return None
-        
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(fetch())
-    return jsonify(res.get('results', []) if res else [])
+    try:
+        response = sync_http_session.get(url, timeout=8)
+        if response.status_code == 200:
+            res = response.json()
+            return jsonify(res.get('results', []))
+    except Exception:
+        pass
+    return jsonify([])
 
 
 # ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
@@ -345,12 +372,12 @@ def admin_dashboard():
     if not session.get('admin_logged_in'):
         return redirect(f"{PREFIX}/admin/login")
     movies = load_movies_db()
-    movies.sort(key=lambda x: x.get('updated_at', 0), reverse=True) 
+    movies_sorted = sorted(movies, key=lambda x: x.get('updated_at', 0), reverse=True)
     settings = load_settings()
     
     admin_ids_txt = ", ".join(str(aid) for aid in settings.get('admin_ids', []))
     
-    return render_template_string(DASHBOARD_HTML, movies=movies, settings=settings, admin_ids_txt=admin_ids_txt, prefix=PREFIX)
+    return render_template_string(DASHBOARD_HTML, movies=movies_sorted, settings=settings, admin_ids_txt=admin_ids_txt, prefix=PREFIX)
 
 @web_app.route('/admin/save-settings', methods=['POST'])
 @web_app.route(f'{PREFIX}/admin/save-settings', methods=['POST'])
@@ -444,7 +471,7 @@ def send_to_channel(movie_id):
 
 # ==================== কোয়ালিটি সিলেকশন হাব ও ডাউনলোড মেকানিজম ====================
 
-# ১. ডাউনলোড মেইন হাব
+# ১. ডাউনলোড মেইন হাব (ক্যাশ রিড করার মাধ্যমে সুপারফাস্ট)
 @web_app.route('/download/<movie_id>')
 @web_app.route(f'{PREFIX}/download/<movie_id>')
 def movie_download_hub(movie_id):
@@ -537,7 +564,7 @@ def admin_logout():
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port, threaded=True)
 
 
 # ==================== পাইগ্রাম টেলিগ্রাম বট ও অটো-পার্স লজিক ====================
@@ -753,7 +780,6 @@ async def auto_file_poster_handler(client, message):
                 res_json = await resp.json()
                 results = res_json.get('results', [])
                 
-                # 'query_res' টাইপো পরিবর্তন করে 'results' করা হয়েছে
                 if not results and release_year:
                     fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
                     async with session.get(fallback_url) as fb_resp:
@@ -1173,7 +1199,7 @@ EDIT_HTML = """
             resultContainer.style.display = "flex";
 
             let isUrl = input.includes("themoviedb.org");
-            let isOnlyNumber = /^[0-9]+$/.test(input); // Syntax warning resolved by replacing \d with [0-9]
+            let isOnlyNumber = /^[0-9]+$/.test(input);
 
             if (isUrl || isOnlyNumber) {
                 resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
