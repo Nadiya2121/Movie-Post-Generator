@@ -5,16 +5,14 @@ import json
 import io
 import asyncio
 import re
-import html
-import time
+import xml.etree.ElementTree as ET
+import html # এইচটিএমএল ট্যাগ সুরক্ষিতভাবে পার্স করার জন্য
 import urllib.parse
-import urllib.request
-import requests
-import aiohttp
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
+import aiohttp # সম্পূর্ণ এসিঙ্ক্রোনাস এপিআই হ্যান্ডেল করার জন্য
+from flask import Flask
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
 
 # --- কনফিগারেশন এরিয়া ---
 API_ID = int(os.environ.get('API_ID', 29462738)) 
@@ -25,21 +23,227 @@ BOT_USERNAME = os.environ.get('BOT_USERNAME', 'MoviePostGeneratorBot')
 
 OWNER_ID = int(os.environ.get('OWNER_ID', 8297458824)) 
 DATABASE_CHANNEL_ID = int(os.environ.get('DATABASE_CHANNEL_ID', -1003506219023)) 
+
+OWNER_DIRECT_LINK = os.environ.get('OWNER_DIRECT_LINK', 'https://omg10.com/4/11047054') 
+REVENUE_SHARE_PERCENT = int(os.environ.get('REVENUE_SHARE_PERCENT', 20)) 
+IMGBB_API_KEY = os.environ.get('IMGBB_API_KEY', 'c082ca1c9578c2f544c5845a07eda70a') 
+
 AUTO_DELETE_DELAY = 300 
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
-# Koyeb সাব-পাথ ফ্রেমওয়ার্ক
-MAIN_WEBSITE_URL = "https://gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/Movie-Post-Generator/"
-PREFIX = "/view/Movie-Post-Generator"
-
-# গ্লোবাল সেশন ম্যানেজার (দ্রুত কানেকশনের জন্য)
 http_session = None
-sync_http_session = requests.Session()  # Flask রাউটের জন্য অপ্টিমাইজড কানেকশন পুল
-
 web_app = Flask(__name__)
-web_app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'supersecretkey_bdmoviezone')
+temp_codes = {}
 
-# --- ডেটাবেজ ইনিশিয়ালাইজেশন ---
+@web_app.route('/')
+def home():
+    return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
+
+# --- প্রফেশনাল কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
+@web_app.route('/code/<code_id>')
+def view_code(code_id):
+    code_data = None
+    if db_mongo is not None:
+        try:
+            doc = db_mongo['shared_codes'].find_one({'_id': code_id})
+            if doc:
+                code_data = doc.get('code')
+        except Exception:
+            pass
+    
+    if not code_data:
+        code_data = temp_codes.get(code_id)
+        
+    if not code_data:
+        return "<h3 style='color: #ef4444; font-family: sans-serif; text-align: center; margin-top: 50px;'>❌ কোডটি পাওয়া যায়নি অথবা মেয়াদ শেষ হয়ে গেছে!</h3>", 404
+        
+    escaped_html = html.escape(code_data)
+    
+    web_page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copy Post Code - BD Movie Zone</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
+    <style>
+        * {{ box-sizing: border-box; }}
+        body {{ 
+            background-color: #08090c; 
+            background-image: radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.08) 0, transparent 50%), radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.05) 0, transparent 50%);
+            color: #f1f5f9; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+        }}
+        .container {{ 
+            background: rgba(17, 18, 24, 0.8); 
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08); 
+            border-radius: 20px; 
+            padding: 40px; 
+            max-width: 850px; 
+            width: 100%; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6); 
+        }}
+        h1 {{ 
+            font-size: 24px; 
+            font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-top: 0; 
+            text-align: center; 
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08); 
+            padding-bottom: 20px; 
+            letter-spacing: -0.5px;
+        }}
+        .btn {{ 
+            background: linear-gradient(135deg, #38bdf8, #0284c7); 
+            color: #ffffff; 
+            font-weight: 600; 
+            border: none; 
+            padding: 16px 28px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%; 
+            margin-bottom: 24px; 
+            text-align: center; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);
+        }}
+        .btn:hover {{ 
+            transform: translateY(-2px); 
+            box-shadow: 0 8px 25px rgba(56, 189, 248, 0.4); 
+            filter: brightness(1.1);
+        }}
+        .btn:active {{
+            transform: translateY(1px);
+        }}
+        pre {{ 
+            background: #030406; 
+            padding: 20px; 
+            border-radius: 12px; 
+            overflow-x: auto; 
+            max-height: 400px; 
+            border: 1px solid rgba(255, 255, 255, 0.05); 
+            font-size: 14px; 
+            color: #34d399; 
+        }}
+        pre::-webkit-scrollbar {{
+            width: 8px;
+            height: 8px;
+        }}
+        pre::-webkit-scrollbar-track {{
+            background: #030406;
+        }}
+        pre::-webkit-scrollbar-thumb {{
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }}
+        pre::-webkit-scrollbar-thumb:hover {{
+            background: rgba(255, 255, 255, 0.2);
+        }}
+        code {{ 
+            font-family: 'Fira Code', Consolas, Monaco, monospace; 
+        }}
+        .footer {{ 
+            margin-top: 24px; 
+            font-size: 13px; 
+            color: #64748b; 
+            text-align: center; 
+            font-weight: 500;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 BD Movie Zone - HTML Code Export</h1>
+        <button class="btn" id="copyBtn" onclick="copyToClipboard()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span id="btnText">Click to Copy Code</span>
+        </button>
+        <pre><code id="codeBlock">{escaped_html}</code></pre>
+    </div>
+    <div class="footer">Powered by BD Movie Zone Bot Engine</div>
+    <script>
+        function copyToClipboard() {{
+            var codeText = document.getElementById("codeBlock").innerText;
+            navigator.clipboard.writeText(codeText).then(function() {{
+                var btn = document.getElementById("copyBtn");
+                var btnText = document.getElementById("btnText");
+                btnText.innerHTML = "Code Copied Successfully!";
+                btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+                btn.style.boxShadow = "0 8px 25px rgba(16, 185, 129, 0.35)";
+                setTimeout(function() {{
+                    btnText.innerHTML = "Click to Copy Code";
+                    btn.style.background = "linear-gradient(135deg, #38bdf8, #0284c7)";
+                    btn.style.boxShadow = "0 4px 15px rgba(56, 189, 248, 0.25)";
+                }}, 2500);
+            }}).catch(function(err) {{
+                alert("Failed to copy: " + err);
+            }});
+        }}
+    </script>
+</body>
+</html>"""
+    return web_page
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
+app = Client(
+    "movie_post_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+# --- লিংক ডিসপ্যাচার ---
+async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
+    code_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(8))
+    
+    if db_mongo is not None:
+        try:
+            db_mongo['shared_codes'].update_one(
+                {'_id': code_id},
+                {'$set': {'code': html_code}},
+                upsert=True
+            )
+        except Exception as e:
+            print(f"MongoDB save code failed: {e}")
+            temp_codes[code_id] = html_code
+    else:
+        temp_codes[code_id] = html_code
+
+    app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
+    share_link = f"{app_url}/code/{code_id}"
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 এক ক্লিকে কোড কপি করুন", url=share_link)]
+    ])
+    
+    await client.send_message(
+        chat_id,
+        "🔗 **আপনার ব্লগার HTML কোডটি প্রস্তুত করা হয়েছে!**\n\n"
+        "নিচের বাটনে ক্লিক করে কোড পেইজে যান এবং সেখান থেকে এক ক্লিকে কোডটি কপি করে সরাসরি ব্লগারে বসিয়ে দিন।",
+        reply_markup=markup
+    )
+
+user_states = {}
+DB_FILE = 'db_system.json'
+
 MONGO_URI = os.environ.get('MONGO_URI') 
 mongo_client = None
 db_mongo = None
@@ -52,584 +256,425 @@ if MONGO_URI:
         mongo_client.server_info() 
         print("MongoDB Connected Successfully!")
     except Exception as e:
-        print(f"MongoDB Connection Failed: {e}. Falling back to Local JSON.")
+        print(f"MongoDB Connection Failed: {e}. Falling back to Local Database.")
         db_mongo = None
 
-# গ্লোবাল সেটিংস ও মুভি ডেটা ক্যাশ অবজেক্ট (সার্ভার পারফরম্যান্স বৃদ্ধির জন্য)
-system_settings = None
-movies_cache_data = None
-movies_cache_time = 0
-CACHE_TTL = 30  # ৩০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে
-
-# --- অ্যাডমিন ও ডিরেক্ট লিংক সেটিংস লোডার ---
-def load_settings(force_reload=False):
-    global system_settings
-    if system_settings is not None and not force_reload:
-        return system_settings
-
-    default_settings = {
-        'direct_links': [],  
-        'revenue_share': 20,
-        'download_timer': 5,
-        'blogger_url': MAIN_WEBSITE_URL,
-        'notification_channel_id': "",
-        'admin_ids': [],
-        'update_channel_url': "https://t.me/BDMovieZone",
-        'group_channel_url': "https://t.me/BDMovieZoneGroup",
-        'custom_caption_template': (
-            "🎬 <b>{title}</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "🗣️ Language: <b>{lang}</b>\n"
-            "🎭 Genres: <b>{genres}</b>\n"
-            "💿 Quality: <b>{quality}</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "⚠️ <b>জরুরি ডাউনলোড নির্দেশিকা (বাংলায়):</b>\n"
-            "১. কপিরাইটের কারণে ফাইলটি আগামী <b>৫ মিনিটের মধ্যে</b> রিমুভ হয়ে যাবে।\n"
-            "২. রিমুভ হওয়ার আগেই এই ফাইলের ওপর রাইট ক্লিক করে (কিংবা ৩-ডটে চাপ দিয়ে) ফাইলটি আপনার <b>Saved Messages</b>-এ ফরোয়ার্ড করে রাখুন।\n"
-            "৩. ফরোয়ার্ড করে রাখলে ফাইলটি ডিলিট হওয়ার পরও আপনার কাছে আজীবন থেকে যাবে।"
-        )
+def load_system_db():
+    if db_mongo is not None:
+        try:
+            config = db_mongo['system_config'].find_one({'_id': 'settings'})
+            if config:
+                return {
+                    'owner_ads': config.get('owner_ads', []),
+                    'owner_share': config.get('owner_share', 20),
+                    'user_ads': config.get('user_ads', {}),
+                    'autopost_configs': config.get('autopost_configs', {})
+                }
+        except Exception:
+            pass
+            
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        'owner_ads': ['https://www.highrateprofit.com/default-owner-key'],
+        'owner_share': 20, 
+        'user_ads': {},
+        'autopost_configs': {}
     }
-    
-    config = None
+
+system_db = load_system_db()
+
+def save_system_db():
     if db_mongo is not None:
         try:
-            config = db_mongo['settings'].find_one({'_id': 'system_config'})
-        except Exception: pass
-        
-    if not config and os.path.exists("settings.json"):
-        try:
-            with open("settings.json", "r", encoding="utf-8") as f:
-                config = json.load(f)
-        except Exception: pass
-
-    if config:
-        for key, val in default_settings.items():
-            if key not in config:
-                config[key] = val
-        system_settings = config
-        return config
-
-    system_settings = default_settings
-    return default_settings
-
-def save_settings(settings):
-    global system_settings
-    system_settings = settings
-    if db_mongo is not None:
-        try:
-            db_mongo['settings'].update_one({'_id': 'system_config'}, {'$set': settings}, upsert=True)
+            db_mongo['system_config'].update_one(
+                {'_id': 'settings'},
+                {'$set': {
+                    'owner_ads': system_db['owner_ads'],
+                    'owner_share': system_db['owner_share'],
+                    'user_ads': system_db['user_ads'],
+                    'autopost_configs': system_db.get('autopost_configs', {})
+                }},
+                upsert=True
+            )
             return
-        except Exception: pass
-    try:
-        with open("settings.json", "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=4, ensure_ascii=False)
-    except Exception: pass
-
-# Initial load
-system_settings = load_settings()
-
-# --- ডেটা রিড ও ডাইনামিক অটো-মার্জিং মেকানিজম (অপ্টিমাইজড ক্যাশ সহ) ---
-def load_movies_db(force_reload=False):
-    global movies_cache_data, movies_cache_time
-    current_time = time.time()
-    
-    if movies_cache_data is not None and (current_time - movies_cache_time < CACHE_TTL) and not force_reload:
-        return movies_cache_data
-
-    movies = []
-    if db_mongo is not None:
-        try:
-            movies = list(db_mongo['movies'].find({}))
-        except Exception:
-            pass
-    if not movies and os.path.exists("movies_db.json"):
-        try:
-            with open("movies_db.json", "r", encoding="utf-8") as f:
-                movies = json.load(f)
         except Exception:
             pass
             
-    movies_cache_data = movies
-    movies_cache_time = current_time
-    return movies
+    try:
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(system_db, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
 
-def save_movie_to_db(movie_id, data):
-    movies = load_movies_db(force_reload=True)
-    current_time = time.time()
-    data['updated_at'] = current_time
+async def upload_image_to_cloud(file_id):
+    global http_session
+    if not http_session:
+        return None
+        
+    try:
+        get_file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+        async with http_session.get(get_file_url, timeout=10) as resp:
+            res = await resp.json()
+        if not res.get('ok'):
+            return None
+        file_path = res['result']['file_path']
+        
+        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        async with http_session.get(download_url, timeout=12) as resp:
+            img_data = await resp.read()
+        if not img_data:
+            return None
 
-    existing_by_id_index = -1
-    for i, m in enumerate(movies):
-        if m.get('_id') == movie_id:
-            existing_by_id_index = i
-            break
-
-    if existing_by_id_index != -1:
-        movies[existing_by_id_index] = data
-        if db_mongo is not None:
+        # ImgBB
+        if IMGBB_API_KEY and IMGBB_API_KEY != "YOUR_IMGBB_API_KEY":
             try:
-                db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-            except Exception:
-                pass
-    else:
-        existing_by_title_index = -1
-        for i, m in enumerate(movies):
-            if m.get('movie_data', {}).get('title', '').lower().strip() == data.get('movie_data', {}).get('title', '').lower().strip():
-                existing_by_title_index = i
-                break
-
-        if existing_by_title_index != -1:
-            existing_movie = movies[existing_by_title_index]
-            if data['type'] == 'movie':
-                for quality, link in data.get('dl_links', {}).items():
-                    if link:
-                        existing_movie.setdefault('dl_links', {})[quality] = link
-            else:
-                existing_ep_names = [ep['name'] for ep in existing_movie.get('episodes', [])]
-                for ep in data.get('episodes', []):
-                    if ep['name'] not in existing_ep_names:
-                        existing_movie.setdefault('episodes', []).append(ep)
-            
-            existing_movie['updated_at'] = current_time
-            movies[existing_by_title_index] = existing_movie
-
-            if db_mongo is not None:
-                try:
-                    db_mongo['movies'].update_one({'_id': existing_movie['_id']}, {'$set': existing_movie}, upsert=True)
-                except Exception:
-                    pass
-        else:
-            data['_id'] = movie_id
-            movies.append(data)
-            if db_mongo is not None:
-                try:
-                    db_mongo['movies'].update_one({'_id': movie_id}, {'$set': data}, upsert=True)
-                except Exception:
-                    pass
-        
-    try:
-        with open("movies_db.json", "w", encoding="utf-8") as f:
-            json.dump(movies, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
-    
-    # ডেটা পরিবর্তনের পর ক্যাশ সাথে সাথে আপডেট করা হচ্ছে
-    global movies_cache_data, movies_cache_time
-    movies_cache_data = movies
-    movies_cache_time = time.time()
-
-def delete_movie_from_db(movie_id):
-    if db_mongo is not None:
-        try:
-            db_mongo['movies'].delete_one({'_id': movie_id})
-        except Exception:
-            pass
-    movies = load_movies_db(force_reload=True)
-    movies = [m for m in movies if m.get('_id') != movie_id]
-    try:
-        with open("movies_db.json", "w", encoding="utf-8") as f:
-            json.dump(movies, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
-    
-    global movies_cache_data, movies_cache_time
-    movies_cache_data = movies
-    movies_cache_time = time.time()
-
-# টেলিগ্রামে ডাইরেক্ট চ্যানেল পোস্ট পাঠানোর জন্য সিঙ্ক-হ্যান্ডলার
-def send_telegram_photo_sync(chat_id, photo_url, caption, reply_markup=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {
-        "chat_id": chat_id,
-        "photo": photo_url,
-        "caption": caption,
-        "parse_mode": "HTML"
-    }
-    if reply_markup:
-        payload["reply_markup"] = json.dumps(reply_markup)
-    
-    try:
-        response = sync_http_session.post(url, json=payload, timeout=8)
-        return response.json()
-    except Exception as e:
-        print(f"Sync Telegram Post Failed: {e}")
-        return {"ok": False, "description": str(e)}
-
-# CORS হেডার যুক্ত করা
-@web_app.after_request
-def add_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
-    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
-    return response
-
-# ==================== এপিআই এন্ডপয়েন্ট ====================
-
-@web_app.route('/ping', methods=['GET'])
-@web_app.route(f'{PREFIX}/ping', methods=['GET'])
-def server_ping():
-    return jsonify({"status": "active", "timestamp": time.time()})
-
-@web_app.route('/api/movies', methods=['GET'])
-@web_app.route(f'{PREFIX}/api/movies', methods=['GET'])
-def get_all_movies_api():
-    movies = load_movies_db()
-    sorted_movies = sorted(movies, key=lambda x: x.get('updated_at', 0), reverse=True)
-    return jsonify(sorted_movies)
-
-@web_app.route('/api/settings', methods=['GET'])
-@web_app.route(f'{PREFIX}/api/settings', methods=['GET'])
-def get_settings_api():
-    settings = load_settings()
-    return jsonify(settings)
-
-@web_app.route('/api/tmdb-fetch', methods=['POST'])
-@web_app.route(f'{PREFIX}/api/tmdb-fetch', methods=['POST'])
-def tmdb_fetch_api():
-    if not session.get('admin_logged_in'):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.json or {}
-    tmdb_input = data.get('tmdb_input', '').strip()
-    is_tv = data.get('is_tv', False)
-    tmdb_id = tmdb_input
-    
-    if "themoviedb.org" in tmdb_input:
-        match = re.search(r"/(movie|tv)/(\d+)", tmdb_input)
-        if match:
-            tmdb_id = match.group(2)
-            is_tv = (match.group(1) == "tv")
-            
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=images"
-    
-    try:
-        response = sync_http_session.get(url, timeout=8)
-        if response.status_code != 200:
-            return jsonify({"error": "Failed to fetch data from TMDB"}), 400
-        res_data = response.json()
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-        
-    title = res_data.get('title') if not is_tv else res_data.get('name')
-    release = res_data.get('release_date') if not is_tv else res_data.get('first_air_date')
-    year = release.split('-')[0] if release else 'N/A'
-    rating = f"{res_data.get('vote_average'):.1f}/10" if res_data.get('vote_average') else 'N/A'
-    genres = ", ".join([g['name'] for g in res_data.get('genres', [])])
-    poster = f"https://image.tmdb.org/t/p/w500{res_data.get('poster_path')}" if res_data.get('poster_path') else 'https://via.placeholder.com/300x450'
-    backdrop = f"https://image.tmdb.org/t/p/original{res_data.get('backdrop_path')}" if res_data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
-    plot = res_data.get('overview', 'No description available.')
-    backdrops = res_data.get('images', {}).get('backdrops', [])
-    screenshots = [f"https://image.tmdb.org/t/p/w780{bg.get('file_path')}" for bg in backdrops[:4] if bg.get('file_path')]
-
-    return jsonify({
-        "title": f"{title} ({year})", "poster": poster, "backdrop": backdrop,
-        "rating": rating, "genres": genres, "plot": plot, "screenshots": screenshots
-    })
-
-@web_app.route('/api/tmdb-search', methods=['POST'])
-@web_app.route(f'{PREFIX}/api/tmdb-search', methods=['POST'])
-def tmdb_search_endpoint():
-    if not session.get('admin_logged_in'):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.json or {}
-    query = data.get('query', '').strip()
-    is_tv = data.get('is_tv', False)
-    
-    endpoint = "tv" if is_tv else "movie"
-    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
-    
-    try:
-        response = sync_http_session.get(url, timeout=8)
-        if response.status_code == 200:
-            res = response.json()
-            return jsonify(res.get('results', []))
-    except Exception:
-        pass
-    return jsonify([])
-
-
-# ==================== ওয়েব অ্যাডমিন প্যানেল ভিউজ ====================
-
-@web_app.route('/')
-@web_app.route(f'{PREFIX}/')
-def home():
-    return "BD Movie Zone API & Bot Server is active!"
-
-@web_app.route('/admin/login', methods=['GET', 'POST'])
-@web_app.route(f'{PREFIX}/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        if request.form.get('password') == ADMIN_PASSWORD:
-            session['admin_logged_in'] = True
-            return redirect(f"{PREFIX}/admin")
-        else:
-            return render_template_string(LOGIN_HTML, error="ভুল পাসওয়ার্ড! আবার ট্রাই করুন。", prefix=PREFIX)
-    return render_template_string(LOGIN_HTML, prefix=PREFIX)
-
-@web_app.route('/admin')
-@web_app.route(f'{PREFIX}/admin')
-def admin_dashboard():
-    if not session.get('admin_logged_in'):
-        return redirect(f"{PREFIX}/admin/login")
-    movies = load_movies_db()
-    movies_sorted = sorted(movies, key=lambda x: x.get('updated_at', 0), reverse=True)
-    settings = load_settings()
-    
-    admin_ids_txt = ", ".join(str(aid) for aid in settings.get('admin_ids', []))
-    
-    return render_template_string(DASHBOARD_HTML, movies=movies_sorted, settings=settings, admin_ids_txt=admin_ids_txt, prefix=PREFIX)
-
-@web_app.route('/admin/save-settings', methods=['POST'])
-@web_app.route(f'{PREFIX}/admin/save-settings', methods=['POST'])
-def admin_save_settings():
-    if not session.get('admin_logged_in'):
-        return redirect(f"{PREFIX}/admin/login")
-        
-    links_raw = request.form.get('direct_links', '')
-    links_list = [l.strip() for l in re.split(r'[\r\n]+', links_raw) if l.strip().startswith('http')]
-    
-    admin_raw = request.form.get('admin_ids', '')
-    admin_list = []
-    for uid in admin_raw.replace('\n', ',').split(','):
-        uid = uid.strip()
-        if uid.isdigit() or (uid.startswith('-') and uid[1:].isdigit()):
-            admin_list.append(int(uid))
-
-    settings = {
-        'direct_links': links_list,
-        'revenue_share': int(request.form.get('revenue_share', 20)),
-        'download_timer': int(request.form.get('download_timer', 5)),
-        'blogger_url': request.form.get('blogger_url', '').strip(),
-        'notification_channel_id': request.form.get('notification_channel_id', '').strip(),
-        'admin_ids': admin_list,
-        'update_channel_url': request.form.get('update_channel_url', '').strip(),
-        'group_channel_url': request.form.get('group_channel_url', '').strip(),
-        'custom_caption_template': request.form.get('custom_caption_template', '').strip()
-    }
-    
-    save_settings(settings)
-    load_settings(force_reload=True) # মেমোরি ক্যাশ ফোর্স রিফ্রেশ
-    return redirect(f"{PREFIX}/admin")
-
-@web_app.route('/admin/send-channel/<movie_id>')
-@web_app.route(f'{PREFIX}/admin/send-channel/<movie_id>')
-def send_to_channel(movie_id):
-    if not session.get('admin_logged_in'):
-        return redirect(f"{PREFIX}/admin/login")
-        
-    movies = load_movies_db()
-    movie = next((m for m in movies if m.get('_id') == movie_id), None)
-    if not movie:
-        return "Movie/Series not found", 404
-        
-    settings = load_settings()
-    chan_id = settings.get('notification_channel_id', '').strip()
-    blog_url = settings.get('blogger_url', '').strip()
-    
-    if not chan_id:
-        return "Error: অনুগ্রহ করে ড্যাশবোর্ড থেকে Notification Channel ID সেট করুন!", 400
-    if not blog_url:
-        return "Error: অনুগ্রহ করে ড্যাশবোর্ড থেকে Blogger Website URL সেট করুন!", 400
-
-    movie_meta = movie.get('movie_data', {})
-    title = movie_meta.get('title', 'N/A')
-    lang = movie_meta.get('lang', 'N/A')
-    genres = movie_meta.get('genres', 'N/A')
-    plot = movie_meta.get('plot', 'No storyline available.')
-    poster = movie_meta.get('poster', 'https://via.placeholder.com/300x450')
-
-    if len(plot) > 350:
-        plot = plot[:347] + "..."
-
-    qualities = []
-    links = movie.get('dl_links', {})
-    if links.get('480p'): qualities.append("480p")
-    if links.get('720p'): qualities.append("720p")
-    if links.get('1080p'): qualities.append("1080p")
-    quality_str = " | ".join(qualities) if qualities else "Not specified"
-
-    caption = (
-        f"🎬 <b>{title}</b>\n\n"
-        f"🗣️ <b>Language:</b> {lang}\n"
-        f"🎭 <b>Genres:</b> {genres}\n"
-        f"💿 <b>Available Quality:</b> {quality_str}\n\n"
-        f"📝 <b>Storyline:</b> {plot}"
-    )
-
-    reply_markup = {
-        "inline_keyboard": [
-            [{"text": "📥 Watch / Download", "url": blog_url}]
-        ]
-    }
-
-    res = send_telegram_photo_sync(chan_id, poster, caption, reply_markup)
-    if res.get('ok'):
-        return redirect(f"{PREFIX}/admin?msg=success_posted")
-    else:
-        err_desc = res.get('description', 'Unknown API Error')
-        return f"Failed to send post. Telegram Error: {err_desc}", 500
-
-# ==================== কোয়ালিটি সিলেকশন হাব ও ডাউনলোড মেকানিজম ====================
-
-# ১. ডাউনলোড মেইন হাব (ক্যাশ রিড করার মাধ্যমে সুপারফাস্ট)
-@web_app.route('/download/<movie_id>')
-@web_app.route(f'{PREFIX}/download/<movie_id>')
-def movie_download_hub(movie_id):
-    movies = load_movies_db()
-    movie = next((m for m in movies if m.get('_id') == movie_id), None)
-    if not movie:
-        return "Content not found on server.", 404
-        
-    return render_template_string(HUB_HTML, movie=movie, prefix=PREFIX)
-
-# ২. প্রগ্রেস ও নিয়ন গ্লো কাউন্টডাউন টাইমার উইজেট পেইজ
-@web_app.route('/download/<movie_id>/<quality>')
-@web_app.route(f'{PREFIX}/download/<movie_id>/<quality>')
-def movie_download_landing(movie_id, quality):
-    movies = load_movies_db()
-    movie = next((m for m in movies if m.get('_id') == movie_id), None)
-    if not movie:
-        return "Requested content not found.", 404
-        
-    settings = load_settings()
-    
-    raw_direct_links = settings.get('direct_links', [])
-    valid_direct_links = [l.strip() for l in raw_direct_links if l.strip().startswith('http')]
-    
-    # অ্যাডমিন প্যানেলের লিংক থেকে যেকোনো একটি র্যান্ডমলি সিলেক্ট করা হচ্ছে
-    selected_direct_link = random.choice(valid_direct_links) if valid_direct_links else ""
-    
-    file_key = movie.get('dl_links', {}).get(quality)
-    if not file_key:
-        return f"Sorry, {quality} file is currently unavailable.", 404
-        
-    tg_bot_link = f"https://t.me/{BOT_USERNAME}?start={file_key}"
-    
-    # যদি ডিরেক্ট এডমিন লিংক না থাকে তবে সরাসরি বটের লিংকে রিডাইরেক্ট হবে
-    if not selected_direct_link:
-        selected_direct_link = tg_bot_link
-
-    return render_template_string(
-        DOWNLOAD_HTML, 
-        movie=movie, 
-        quality=quality, 
-        timer=int(settings.get('download_timer', 5)), 
-        direct_link=selected_direct_link, 
-        tg_bot_link=tg_bot_link
-    )
-
-@web_app.route('/admin/edit/<movie_id>', methods=['GET', 'POST'])
-@web_app.route(f'{PREFIX}/admin/edit/<movie_id>', methods=['GET', 'POST'])
-def edit_movie(movie_id):
-    if not session.get('admin_logged_in'):
-        return redirect(f"{PREFIX}/admin/login")
-        
-    movies = load_movies_db()
-    movie = next((m for m in movies if m.get('_id') == movie_id), None)
-    if not movie:
-        return "Movie not found", 404
-        
-    if request.method == 'POST':
-        movie['movie_data']['title'] = request.form.get('title')
-        movie['movie_data']['poster'] = request.form.get('poster')
-        movie['movie_data']['backdrop'] = request.form.get('backdrop')
-        movie['movie_data']['rating'] = request.form.get('rating')
-        movie['movie_data']['lang'] = request.form.get('lang')
-        movie['movie_data']['genres'] = request.form.get('genres')
-        movie['movie_data']['plot'] = request.form.get('plot')
-        screens = request.form.get('screenshots', '').split('\n')
-        movie['movie_data']['screenshots'] = [s.strip() for s in screens if s.strip()]
-        
-        if movie.get('type') == 'series':
-            movie['season'] = request.form.get('season')
-            
-        save_movie_to_db(movie_id, movie)
-        return redirect(f"{PREFIX}/admin")
-        
-    return render_template_string(EDIT_HTML, movie=movie, prefix=PREFIX)
-
-@web_app.route('/admin/delete/<movie_id>')
-@web_app.route(f'{PREFIX}/admin/delete/<movie_id>')
-def delete_movie(movie_id):
-    if not session.get('admin_logged_in'):
-        return redirect(f"{PREFIX}/admin/login")
-    delete_movie_from_db(movie_id)
-    return redirect(f"{PREFIX}/admin")
-
-@web_app.route('/admin/logout')
-@web_app.route(f'{PREFIX}/admin/logout')
-def admin_logout():
-    session.pop('admin_logged_in', None)
-    return redirect(f"{PREFIX}/admin/login")
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port, threaded=True)
-
-
-# ==================== পাইগ্রাম টেলিগ্রাম বট ও অটো-পার্স লজিক ====================
-
-app = Client("movie_post_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-def clean_movie_filename(filename):
-    name, _ = os.path.splitext(filename)
-    
-    name = re.sub(r'\[.*?\]', ' ', name)
-    name = re.sub(r'\(.*?\)', ' ', name)
-    
-    name = re.sub(r'\b[\w\-]+\.(com|net|org|app|cc|in|xyz|vip|ws|info|live|co|club|to|co\.in)\b', ' ', name, flags=re.IGNORECASE)
-    name = re.sub(r'\b(bdmoviezone|vegamovies|katmoviehd|bolly4u|9xmovies|extramovies|worldfree4u|yts|yify|psa|pahe|galaxyrg|megusta|tigole|qxr|vxt|rarbg|extratorrent)\b', ' ', name, flags=re.IGNORECASE)
-    
-    name = re.sub(r'[\._\-+]', ' ', name)
-    
-    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
-    year = None
-    if year_match:
-        year = year_match.group(1)
-        year_idx = name.find(year)
-        name = name[:year_idx]
-        
-    technical_keywords = [
-        r'\b480p\b', r'\b720p\b', r'\b1080p\b', r'\b2160p\b', r'\b4k\b',
-        r'\bbluray\b', r'\bweb[- ]?dl\b', r'\bweb[- ]?rip\b', r'\bhd[- ]?rip\b', r'\bdvdrip\b', r'\bhd[- ]?tv\b', r'\bhdtc\b', r'\bhc\b', r'\bcam\b', r'\bcrip\b',
-        r'\bdual[- ]?audio\b', r'\bmulti[- ]?audio\b', r'\benglish\b', r'\bhindi\b', r'\bbangla\b', r'\bbengali\b', r'\btamil\b', r'\btelugu\b', r'\bmalayalam\b', r'\bkannada\b',
-        r'\bhin\b', r'\beng\b', r'\bben\b', r'\besub\b', r'\bsub\b', r'\bsubtitles\b', r'\bhevc\b', r'\bx264\b', r'\bx265\b', r'\bh264\b', r'\bh265\b', r'\b10bit\b', r'\baac\b',
-        r'\bdd5\b', r'\bac3\b', r'\bmp3\b', r'\bdts\b', r'\bnetflix\b', r'\bamazon\b', r'\bdisney\b', r'\bhotstar\b', r'\bzee5\b', r'\bhoichoi\b', r'\bchorki\b'
-    ]
-    
-    earliest_idx = len(name)
-    for keyword in technical_keywords:
-        match = re.search(keyword, name, flags=re.IGNORECASE)
-        if match:
-            if match.start() < earliest_idx:
-                earliest_idx = match.start()
+                url = "https://api.imgbb.com/1/upload"
+                form_data = aiohttp.FormData()
+                form_data.add_field('key', IMGBB_API_KEY)
+                form_data.add_field('image', img_data, filename='photo.jpg', content_type='image/jpeg')
                 
-    name = name[:earliest_idx]
-    name = re.sub(r'\s+', ' ', name).strip()
+                async with http_session.post(url, data=form_data, timeout=15) as resp:
+                    if resp.status == 200:
+                        res_data = await resp.json()
+                        if res_data.get('success'):
+                            return res_data['data']['url']
+            except Exception as e:
+                print(f"ImgBB failed: {e}")
+
+        # Catbox
+        try:
+            url = "https://catbox.moe/user/api.php"
+            form_data = aiohttp.FormData()
+            form_data.add_field('reqtype', 'fileupload')
+            form_data.add_field('fileToUpload', img_data, filename='photo.jpg', content_type='image/jpeg')
+            
+            async with http_session.post(url, data=form_data, timeout=10) as resp:
+                res_text = await resp.text()
+                if resp.status == 200 and res_text.startswith('http'):
+                    return res_text.strip()
+        except Exception as e:
+            print(f"Catbox failed: {e}")
+
+    except Exception as e:
+        print(f"Image upload services failed: {e}")
+    return None
+
+
+# --- ডাইনামিক ও প্রিমিয়াম ক্যাপশন জেনারেটর ---
+def generate_premium_caption(chat_id, quality=None, episode_name=None):
+    data = user_states[chat_id].get('movie_data', {})
+    title = data.get('title', 'Unknown')
+    rating = data.get('rating', 'N/A')
+    lang = data.get('lang', 'N/A')
     
-    return name, year
+    if episode_name:
+        caption = (
+            f"📺 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⭐️ <b>IMDb:</b> {rating}\n"
+            f"🗣 <b>Language:</b> {lang}\n"
+            f"💿 <b>Episode:</b> {episode_name}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📥 <i>Downloaded via @{BOT_USERNAME}</i>"
+        )
+    else:
+        caption = (
+            f"🎬 <b>{title}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⭐️ <b>IMDb:</b> {rating}\n"
+            f"🗣 <b>Language:</b> {lang}\n"
+            f"💿 <b>Quality:</b> {quality}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📥 <i>Downloaded via @{BOT_USERNAME}</i>"
+        )
+    return caption
 
-def detect_file_quality(filename):
-    fn_lower = filename.lower()
-    if "1080" in fn_lower: return "1080p"
-    elif "720" in fn_lower: return "720p"
-    elif "480" in fn_lower: return "480p"
-    return "720p"
 
+# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার (HTML ক্যাপশন সম্বলিত)
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
-    if not http_session: return None
+    if not http_session:
+        return None
+        
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument" if file_type == 'document' else f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
-        payload = {"chat_id": DATABASE_CHANNEL_ID, "caption": caption, "parse_mode": "HTML"}
-        if file_type == 'document': payload["document"] = file_id
-        else: payload["video"] = file_id
+        payload = {
+            "chat_id": DATABASE_CHANNEL_ID,
+            "caption": caption,
+            "parse_mode": "HTML"
+        }
+        if file_type == 'document':
+            payload["document"] = file_id
+        else:
+            payload["video"] = file_id
+        
         async with http_session.post(url, json=payload, timeout=15) as resp:
             res = await resp.json()
-        if res.get('ok'): return res['result']['message_id']
+        if res.get('ok'):
+            return res['result']['message_id']
     except Exception as e:
-         print(f"Forward to DB failed: {e}")
+        print(f"Async HTTP send file_id failed: {e}")
+
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
+        payload = {
+            "chat_id": DATABASE_CHANNEL_ID,
+            "from_chat_id": from_chat_id,
+            "message_id": message_id
+        }
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
+        if res.get('ok'):
+            return res['result']['message_id']
+    except Exception as e:
+        print(f"Async HTTP Forward Failed: {e}")
     return None
+
+async def send_file_to_user(to_chat_id, msg_id):
+    global http_session
+    if not http_session:
+        return None
+        
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/copyMessage"
+        payload = {
+            "chat_id": to_chat_id,
+            "from_chat_id": DATABASE_CHANNEL_ID,
+            "message_id": msg_id
+        }
+        async with http_session.post(url, json=payload, timeout=15) as resp:
+            res = await resp.json()
+        if res.get('ok'):
+            return res['result']['message_id']
+    except Exception as e:
+        print(f"Async HTTP copyMessage failed: {e}")
+    return None
+
+async def delete_messages_after_delay(chat_id, message_ids, delay):
+    await asyncio.sleep(delay)
+    for msg_id in message_ids:
+        try:
+            await app.delete_messages(chat_id, msg_id)
+        except Exception:
+            pass
+
+def get_button_ad_link(chat_id):
+    owner_share = system_db.get('owner_share', 20)
+    owner_ads = system_db.get('owner_ads', [])
+    user_ads = system_db.get('user_ads', {}).get(str(chat_id), [])
+
+    if random.randint(1, 100) <= owner_share and owner_ads:
+        return random.choice(owner_ads)
+    if user_ads:
+        return random.choice(user_ads)
+    if owner_ads:
+        return random.choice(owner_ads)
+    return OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else ""
+
+async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
+        [InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_Bangla"), InlineKeyboardButton("🎙 Dual Audio (Hin-Eng)", callback_data="lang_Dual Audio (Hindi-English)")],
+        [InlineKeyboardButton("🎙 Multi Audio", callback_data="lang_Multi Audio"), InlineKeyboardButton("✏️ কাস্টম টাইপ করুন", callback_data="lang_custom")]
+    ])
+    await client.send_message(chat_id, text, reply_markup=markup)
+
+
+# ==================== টেলিগ্রাম কমান্ড হ্যান্ডলারস ====================
+
+@app.on_message(filters.command("set_ad") & filters.private)
+async def set_user_ad(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_ad", "").strip()
+    
+    if not text:
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে কমা দিয়ে আপনার ডাইরেক্ট লিঙ্কগুলো পাঠান:\n"
+                                 "`/set_ad https://link1.com, https://link2.com`", parse_mode=ParseMode.MARKDOWN)
+        return
+        
+    links = [l.strip() for l in text.split(",") if l.strip().startswith("http")]
+    if not links:
+        await message.reply_text("❌ কোনো ভ্যালিড লিঙ্ক পাওয়া যায়নি! লিঙ্ক অবশ্যই `http` বা `https` দিয়ে শুরু হতে হবে।")
+        return
+        
+    system_db['user_ads'][str(chat_id)] = links
+    save_system_db()
+    await message.reply_text(f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে।")
+
+@app.on_message(filters.command("my_ad") & filters.private)
+async def my_ad_stats(client, message):
+    chat_id = message.chat.id
+    user_ads = system_db.get('user_ads', {}).get(str(chat_id), [])
+    
+    if not user_ads:
+        await message.reply_text("ℹ️ আপনার কোনো নিজস্ব ডাইরেক্ট লিঙ্ক সেট করা নেই। ডিফল্ট স্পনসর লিঙ্ক ব্যবহার করা হচ্ছে।\n"
+                                 "আপনার নিজস্ব ইনকাম চালু করতে এখনই সেট করুন: `/set_ad <আপনার_লিঙ্ক>`")
+    else:
+        links_text = "\n".join([f"{i+1}. {link}" for i, link in enumerate(user_ads)])
+        await message.reply_text(f"📋 **আপনার একটিভ ডাইরেক্ট লিঙ্কসমূহ (রোটেশন লিস্ট):**\n\n{links_text}")
+
+@app.on_message(filters.command("set_share") & filters.private)
+async def set_owner_share(client, message):
+    chat_id = message.chat.id
+    if chat_id != OWNER_ID:
+        return
+        
+    text = message.text.replace("/set_share", "").strip()
+    try:
+        percent = int(text)
+        if 0 <= percent <= 100:
+            system_db['owner_share'] = percent
+            save_system_db()
+            await message.reply_text(f"✅ **ওনার সিক্রেট রেভিনিউ শেয়ার {percent}% সেট করা হয়েছে!**")
+        else:
+            await message.reply_text("❌ পার্সেন্ট অবশ্যই ০ থেকে ১০০ এর মধ্যে হতে হবে।")
+    except ValueError:
+        await message.reply_text("⚠️ ভুল ফরম্যাট! সঠিক ফরম্যাট: `/set_share 20`")
+
+@app.on_message(filters.command("add_owner_ad") & filters.private)
+async def add_owner_ad(client, message):
+    chat_id = message.chat.id
+    if chat_id != OWNER_ID:
+        return
+        
+    link = message.text.replace("/add_owner_ad", "").strip()
+    if not link.startswith("http"):
+        await message.reply_text("⚠️ অনুগ্রহ করে একটি ভ্যালিড ডাইরেক্ট লিঙ্ক দিন।")
+        return
+        
+    system_db['owner_ads'].append(link)
+    save_system_db()
+    await message.reply_text(f"✅ ওনারের রোটেশন ডাটাবেজে নতুন ডাইরেক্ট লিঙ্ক সফলভাবে যুক্ত হয়েছে।")
+
+@app.on_message(filters.command("del_owner_ad") & filters.private)
+async def del_owner_ad(client, message):
+    chat_id = message.chat.id
+    if chat_id != OWNER_ID:
+        return
+        
+    link = message.text.replace("/del_owner_ad", "").strip()
+    if link in system_db['owner_ads']:
+        system_db['owner_ads'].remove(link)
+        save_system_db()
+        await message.reply_text(f"✅ ওনারের রোটেশন ডাটাবেজ থেকে লিঙ্কটি মুছে ফেলা হয়েছে।")
+    else:
+        await message.reply_text("❌ এই লিঙ্কটি ওনারের ডাটাবেজে পাওয়া যায়নি!")
+
+@app.on_message(filters.command("owner_stats") & filters.private)
+async def owner_stats_handler(client, message):
+    chat_id = message.chat.id
+    if chat_id != OWNER_ID:
+        return
+        
+    owner_ads = system_db.get('owner_ads', [])
+    share = system_db.get('owner_share', 20)
+    links_text = "\n".join([f"{i+1}. {link}" for i, link in enumerate(owner_ads)])
+    
+    await message.reply_text(f"📊 **ওনার সিক্রেট ড্যাশবোর্ড:**\n\n"
+                              f"👥 ওনার সিক্রেট শেয়ার: **{share}%**\n"
+                              f"📋 ওনারের একটিভ লিঙ্কসমূহ:\n{links_text}")
+
+
+# ==================== ৩-কম্যান্ড অটো-পোস্ট সেটআপ এরিয়া ====================
+
+@app.on_message(filters.command("set_website") & filters.private)
+async def set_user_website(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_website", "").strip()
+    if not text or not text.startswith("http"):
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে আপনার ওয়েবসাইটের লিঙ্ক দিন:\n`/set_website https://yourblog.com`")
+        return
+    
+    feed_url = f"{text.rstrip('/')}/feeds/posts/default"
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['website'] = text
+    system_db['autopost_configs'][str(chat_id)]['feed'] = feed_url
+    system_db['autopost_configs'][str(chat_id)]['last_post_id'] = None
+    save_system_db()
+    await message.reply_text(f"✅ **ওয়েবসাইট সেটআপ সম্পন্ন!**\n\n🌐 লিঙ্ক: `{text}`\n⚙️ ফিড: `{feed_url}`")
+
+@app.on_message(filters.command("set_tutorial") & filters.private)
+async def set_user_tutorial(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_tutorial", "").strip()
+    if not text or not text.startswith("http"):
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে আপনার ভিডিও বা পোস্ট টিউটোরিয়াল লিঙ্ক দিন:\n`/set_tutorial https://t.me/yourchannel/123`")
+        return
+        
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['tutorial'] = text
+    save_system_db()
+    await message.reply_text(f"✅ **ডাউনলোড টিউটোরিয়াল সেটআপ সম্পন্ন!**\n\n🎥 লিঙ্ক: `{text}`")
+
+@app.on_message(filters.command("set_channel") & filters.private)
+async def set_user_channel(client, message):
+    chat_id = message.chat.id
+    text = message.text.replace("/set_channel", "").strip()
+    if not text:
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে আপনার প্রাইভেট বা পাবলিক চ্যানেল আইডি দিন:\n`/set_channel -100123456789`")
+        return
+        
+    if not (text.startswith("-100") or text.startswith("@")):
+        await message.reply_text("❌ **ভুল চ্যানেল আইডি!**\n\nচ্যানেল আইডি অবশ্যই `-100` দিয়ে শুরু হতে হবে অথবা পাবলিক হলে `@` দিয়ে শুরু হতে হবে।")
+        return
+        
+    if 'autopost_configs' not in system_db:
+        system_db['autopost_configs'] = {}
+    if str(chat_id) not in system_db['autopost_configs']:
+        system_db['autopost_configs'][str(chat_id)] = {}
+        
+    system_db['autopost_configs'][str(chat_id)]['channel'] = text
+    save_system_db()
+    await message.reply_text(f"✅ **চ্যানেল আইডি সেটআপ সম্পন্ন!**\n\n📢 আইডি: `{text}`\n\n⚠️ *গুরুত্বপূর্ণ: নিশ্চিত করুন যে বটটিকে আপনার এই চ্যানেলে পোস্ট করার পারমিশন সহ Admin এড করেছেন।*")
+
+@app.on_message(filters.command("my_setup") & filters.private)
+async def view_user_setup(client, message):
+    chat_id = message.chat.id
+    configs = system_db.get('autopost_configs', {}).get(str(chat_id), {})
+    
+    if not configs:
+        await message.reply_text("❌ আপনার কোনো অটো-পোস্ট সেটআপ পাওয়া যায়নি। শুরু করতে কম্যান্ডগুলো ব্যবহার করুন:\n\n"
+                                 "১. ওয়েবসাইট: `/set_website <লিঙ্ক>`\n"
+                                 "২. চ্যানেল আইডি: `/set_channel <আইডি>`\n"
+                                 "৩. টিউটোরিয়াল (ঐচ্ছিক): `/set_tutorial <লিঙ্ক>`")
+        return
+        
+    website = configs.get('website', 'Not Set ❌')
+    channel = configs.get('channel', 'Not Set ❌')
+    tutorial = configs.get('tutorial', 'Not Set ❌')
+    
+    await message.reply_text(f"⚙️ **আপনার অটো-পোস্ট কনফিগারেশন:**\n\n"
+                             f"🌐 **ওয়েবসাইট:** `{website}`\n"
+                             f"📢 **চ্যানেল আইডি:** `{channel}`\n"
+                             f"🎥 **টিউটোরিয়াল:** `{tutorial}`\n\n"
+                             f"💡 *সবগুলো সঠিকভাবে সেটআপ করা থাকলে ওয়েবসাইট পোস্টে অটো-পোস্টিং সচল হবে।*")
+
+@app.on_message(filters.command("del_setup") & filters.private)
+async def delete_user_setup(client, message):
+    chat_id = message.chat.id
+    if 'autopost_configs' in system_db and str(chat_id) in system_db['autopost_configs']:
+        del system_db['autopost_configs'][str(chat_id)]
+        save_system_db()
+        await message.reply_text("✅ আপনার অটো-পোস্ট কনফিগারেশন সম্পূর্ণরূপে ডাটাবেজ থেকে মুছে ফেলা হয়েছে।")
+    else:
+        await message.reply_text("❌ আপনার কোনো একটিভ কনফিগারেশন পাওয়া যায়নি।")
+
+
+# ==================== স্টার্ট ও বাটন হ্যান্ডলারস ====================
 
 @app.on_message(filters.command("start") & filters.private)
 async def handle_start(client, message):
@@ -639,1407 +684,1072 @@ async def handle_start(client, message):
     if len(text.split()) > 1:
         param = text.split()[1]
         if param.startswith("msg_"):
-            db_msg_id = int(param.split("_")[1])
-            try:
-                db_message = await client.get_messages(DATABASE_CHANNEL_ID, db_msg_id)
-                if not (db_message.document or db_message.video):
-                    await client.send_message(chat_id, "❌ ফাইলটি খুঁজে পাওয়া যায়নি বা মুছে ফেলা হয়েছে।")
-                    return
-
-                file_id = db_message.document.file_id if db_message.document else db_message.video.file_id
-                file_type = 'document' if db_message.document else 'video'
-                
-                movies = load_movies_db()
-                matched_movie = None
-                matched_quality = "HD"
-                file_key = f"msg_{db_msg_id}"
-                
-                for m in movies:
-                    dl_links = m.get('dl_links', {})
-                    for q, link in dl_links.items():
-                        if link == file_key:
-                            matched_movie = m
-                            matched_quality = q
-                            break
-                    if matched_movie: break
-                
-                settings = load_settings()
-                up_channel = settings.get('update_channel_url', 'https://t.me/BDMovieZone')
-                grp_channel = settings.get('group_channel_url', 'https://t.me/BDMovieZoneGroup')
-                
-                if matched_movie:
-                    m_meta = matched_movie.get('movie_data', {})
-                    title = m_meta.get('title', 'Unknown Movie')
-                    lang = m_meta.get('lang', 'N/A')
-                    genres = m_meta.get('genres', 'N/A')
-                    screenshots = m_meta.get('screenshots', [])
-                else:
-                    title = db_message.document.file_name if db_message.document else (db_message.video.file_name or "Movie File")
-                    lang = "N/A"
-                    genres = "Movie"
-                    screenshots = []
-                
-                caption_tpl = settings.get('custom_caption_template', '')
-                if not caption_tpl:
-                    caption_tpl = (
-                        "🎬 <b>{title}</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━\n"
-                        "🗣️ Language: <b>{lang}</b>\n"
-                        "🎭 Genres: <b>{genres}</b>\n"
-                        "💿 Quality: <b>{quality}</b>\n"
-                        "━━━━━━━━━━━━━━━━━━━━\n"
-                        "⚠️ <b>জরুরি ডাউনলোড নির্দেশিকা (বাংলায়):</b>\n"
-                        "১. কপিরাইটের কারণে ফাইলটি আগামী <b>৫ মিনিটের মধ্যে</b> রিমুভ হয়ে যাবে।\n"
-                        "২. রিমুভ হওয়ার আগেই এই ফাইলের ওপর রাইট ক্লিক করে (কিংবা ৩-ডটে চাপ দিয়ে) ফাইলটি আপনার <b>Saved Messages</b>-এ ফরোয়ার্ড করে রাখুন।\n"
-                        "৩. ফরোয়ার্ড করে রাখলে ফাইলটি ডিলিট হওয়ার পরও আপনার কাছে আজীবন থেকে যাবে।"
-                    )
-                
-                caption = caption_tpl.format(title=title, lang=lang, genres=genres, quality=matched_quality)
-                
-                # ইনবক্স ফাইল মেসেজে ১ম স্ক্রিনশটের মাধ্যমে রিচ প্রিভিউ এম্বেড করা
-                if screenshots and len(screenshots) > 0:
-                    invisible_link = f"<a href='{screenshots[0]}'>&#8203;</a>"
-                    caption = invisible_link + caption
-                
-                buttons = [
-                    [
-                        InlineKeyboardButton("📢 Join Update Channel", url=up_channel),
-                        InlineKeyboardButton("💬 Support Group", url=grp_channel)
-                    ],
-                    [
-                        InlineKeyboardButton("🌐 Visit Our Website", url=settings.get('blogger_url', MAIN_WEBSITE_URL))
-                    ]
-                ]
-                
-                if file_type == 'document':
-                    user_msg = await client.send_document(chat_id, file_id, caption=caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
-                else:
-                    user_msg = await client.send_video(chat_id, file_id, caption=caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
-                
-                warning_text = f"⚠️ কপিরাইটের কারণে ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে ডিলিট হয়ে যাবে। এখনই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
-                sent_warning = await client.send_message(chat_id, warning_text)
-                
-                asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg.id, sent_warning.id], AUTO_DELETE_DELAY))
-            except Exception as e:
-                print(f"Error delivering branded file: {e}")
-                await client.send_message(chat_id, f"❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলেট হয়ে গেছে।")
+            user_msg_id = await send_file_to_user(chat_id, int(param.split("_")[1]))
+            
+            if user_msg_id:
+                warning_text = (
+                    "⚠️ **গুরুত্বপূর্ণ সতর্কবার্তা!**\n\n"
+                    f"কপিরাইট সুরক্ষার স্বার্থে এই ফাইলটি আগামী **{int(AUTO_DELETE_DELAY/60)} মিনিটের** মধ্যে স্বয়ংক্রিয়ভাবে মুছে ফেলা হবে।\n\n"
+                    "তার আগেই ফাইলটি আপনার **Saved Messages**-এ ফরোয়ার্ড করে রাখুন।"
+                )
+                sent_warning = await client.send_message(chat_id, warning_text, parse_mode=ParseMode.MARKDOWN)
+                asyncio.create_task(delete_messages_after_delay(chat_id, [user_msg_id, sent_warning.id], AUTO_DELETE_DELAY))
+            else:
+                await client.send_message(chat_id, "❌ ফাইলটি লোড করা যাচ্ছে না বা ডিলিট হয়ে গেছে।")
         return
 
-    active_settings = load_settings()
-    authorized_admins = [OWNER_ID] + active_settings.get('admin_ids', [])
-    
-    admin_btn = []
-    if chat_id in authorized_admins:
-        admin_btn = [
-            [InlineKeyboardButton("⚙️ এডমিন প্যানেল", url=MAIN_WEBSITE_URL + "admin")],
-            [InlineKeyboardButton("🌐 লাইভ মুভি সাইট", url=MAIN_WEBSITE_URL)]
-        ]
-    else:
-        admin_btn = [
-            [InlineKeyboardButton("🌐 ভিজিট করুন মুভি সাইট", url=MAIN_WEBSITE_URL)]
-        ]
-
-    await client.send_message(
-        chat_id, 
-        f"👋 **BD Movie Zone আল্ট্রা-ফাস্ট ইন্টেলিজেন্ট সিস্টেম!**\n\n"
-        "👉 **অটো-পোস্টিং নিয়ম:** যেকোনো মুভি/সিরিজের ডাউনলোড ফাইল সরাসরি এই চ্যাটে ফরোয়ার্ড করে দিন। "
-        "বট স্বয়ংক্রিয়ভাবে সাইটে পোস্ট পাবলিশ করে দেবে।",
-        reply_markup=InlineKeyboardMarkup(admin_btn)
-    )
-
-@app.on_message((filters.document | filters.video) & filters.private)
-async def auto_file_poster_handler(client, message):
-    chat_id = message.chat.id
-    
-    active_settings = load_settings()
-    authorized_admins = [OWNER_ID] + active_settings.get('admin_ids', [])
-    
-    if chat_id not in authorized_admins:
-        await message.reply_text("❌ দুঃখিত! শুধুমাত্র বটের মালিক বা অনুমোদিত এডমিনরা ফাইল ডাইরেক্ট ফাইল পাবলিশ করতে পারবেন।")
-        return
-
-    filename = message.document.file_name if message.document else message.video.file_name
-    if not filename:
-        filename = message.caption if message.caption else "Unknown Movie"
-        
-    status_msg = await message.reply_text("⏳ **ফাইল ডিটেক্ট করা হয়েছে! নাম পরিষ্কার করা হচ্ছে...**")
-    cleaned_title, release_year = clean_movie_filename(filename)
-    detected_quality = detect_file_quality(filename)
-    
-    await status_msg.edit_text(f"🔍 **মুভির নাম:** `{cleaned_title}`\n💿 **কোয়ালিটি:** `{detected_quality}`\n\n⏳ TMDB ডাটাবেজে সার্চ করা হচ্ছে...")
-    
-    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
-    if release_year:
-        url += f"&year={release_year}"
-        
-    movie_meta = None
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                res_json = await resp.json()
-                results = res_json.get('results', [])
-                
-                if not results and release_year:
-                    fallback_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={urllib.parse.quote(cleaned_title)}"
-                    async with session.get(fallback_url) as fb_resp:
-                        if fb_resp.status == 200:
-                            fb_json = await fb_resp.json()
-                            results = fb_json.get('results', [])
-                            
-                if results:
-                    top_result = results[0]
-                    m_id = top_result['id']
-                    detail_url = f"https://api.themoviedb.org/3/movie/{m_id}?api_key={TMDB_API_KEY}&append_to_response=images"
-                    async with session.get(detail_url) as d_resp:
-                        if d_resp.status == 200:
-                            details = await d_resp.json()
-                            actual_year = details.get('release_date', 'N/A').split('-')[0]
-                            title_with_year = f"{details.get('title')} ({actual_year})"
-                            rating = f"{details.get('vote_average'):.1f}/10" if details.get('vote_average') else 'N/A'
-                            genres = ", ".join([g['name'] for g in details.get('genres', [])])
-                            
-                            poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get('poster_path') else 'https://via.placeholder.com/300x450'
-                            backdrop = f"https://image.tmdb.org/t/p/original{details.get('backdrop_path')}" if details.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
-                            plot = details.get('overview', 'No description available.')
-                            backdrops = details.get('images', {}).get('backdrops', [])
-                            screenshots = [f"https://image.tmdb.org/t/p/w780{bg.get('file_path')}" for bg in backdrops[:4] if bg.get('file_path')]
-                            
-                            movie_meta = {
-                                'title': title_with_year, 'poster': poster, 'backdrop': backdrop,
-                                'rating': rating, 'genres': genres, 'plot': plot, 'screenshots': screenshots,
-                                'lang': 'N/A'
-                            }
-
-    if not movie_meta:
-        movie_meta = {
-            'title': f"{cleaned_title} ({release_year})" if release_year else cleaned_title,
-            'poster': 'https://via.placeholder.com/300x450?text=No+Poster+Found',
-            'backdrop': 'https://via.placeholder.com/1280x720?text=No+Backdrop',
-            'rating': 'N/A', 'genres': 'Movie', 'plot': 'No synopsis fetched.',
-            'screenshots': [], 'lang': 'N/A'
-        }
-
-    await status_msg.edit_text("⏳ **ফাইলটি ব্যাকআপ ক্লাউড ডাটাবেজে সংরক্ষণ করা হচ্ছে...**")
-
-    file_type = 'document' if message.document else 'video'
-    file_id = message.document.file_id if message.document else message.video.file_id
-    caption = f"🎬 <b>{movie_meta['title']}</b>\n💿 Quality: <b>{detected_quality}</b>"
-    
-    db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, caption)
-    if not db_msg_id:
-        await status_msg.edit_text("❌ ফাইল ডাটাবেজ চ্যানেলে সংরক্ষণ ব্যর্থ হয়েছে!")
-        return
-        
-    file_key = f"msg_{db_msg_id}"
-    m_id_unique = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(12))
-    
-    movie_data = {
-        "type": "movie",
-        "movie_data": movie_meta,
-        "dl_links": {
-            "480p": file_key if detected_quality == "480p" else "",
-            "720p": file_key if detected_quality == "720p" else "",
-            "1080p": file_key if detected_quality == "1080p" else ""
-        },
-        "status": "published"
-    }
-    
-    save_movie_to_db(m_id_unique, movie_data)
-
-    success_text = (
-        f"🎉 **পোস্টটি সফলভাবে তৈরি ও লাইভ পাবলিশ করা হয়েছে!**\n\n"
-        f"🎬 **নাম:** `{movie_meta['title']}`\n"
-        f"💿 **কোয়ালিটি লিংক যুক্ত হয়েছে:** `{detected_quality}`\n"
-        f"🗣 **ল্যাঙ্গুয়েজ ট্যাগ:** `N/A` (এখনই প্যানেল থেকে ট্যাগ বসান)\n\n"
-        f"💡 একই মুভির ভিন্ন কোয়ালিটি লিংক এড করতে চাইলে শুধু ফাইলটি ফরোয়ার্ড করলেই হবে, ডাটা অটোমেটিক মার্জ হয়ে যাবে।"
-    )
-    
+    user_states[chat_id] = {}
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛠️ ল্যাঙ্গুয়েজ ট্যাগ বসান (অ্যাডমিন প্যানেল)", url=MAIN_WEBSITE_URL + "admin")],
-        [InlineKeyboardButton("🌐 সাইটে পোস্টটি দেখুন", url=MAIN_WEBSITE_URL)]
+        [InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie"),
+         InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")]
     ])
     
-    await status_msg.delete()
-    await message.reply_text(success_text, reply_markup=markup)
+    await client.send_message(chat_id, 
+                     "👋 **BD Movie Zone আল্ট্রা-ফাস্ট ফাইল স্টোর ও blogger পোস্ট জেনারেটর প্যানেল!**\n\n"
+                     "সরাসরি ফাইল ফরোয়ার্ড করে পোস্ট তৈরি করতে ক্যাটাগরি সিলেক্ট করুন:", 
+                     reply_markup=markup)
 
-async def delete_messages_after_delay(chat_id, message_ids, delay):
-    await asyncio.sleep(delay)
-    for msg_id in message_ids:
-        try: await app.delete_messages(chat_id, msg_id)
-        except Exception: pass
-
-
-# ==================== এডমিন প্যানেল HTML টেমপ্লেটস ====================
-
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - BD Movie Zone</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-    <style>
-        body { 
-            background-color: #06070d; 
-            color: #fff; 
-            height: 100vh; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            padding: 20px;
-        }
-        .card { 
-            background: #0f111a; 
-            border: 1px solid rgba(255,255,255,0.08); 
-            width: 100%;
-            max-width: 400px; 
-            border-radius: 16px;
-            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
-        }
-        .btn-info {
-            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-            border: none;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="card p-4 shadow">
-        <h4 class="text-center text-info mb-4" style="font-weight: 800; letter-spacing: 0.5px;">🎬 BD MOVIE ZONE</h4>
-        <p class="text-center text-muted small">কন্ট্রোল ড্যাশবোর্ডে লগইন করুন</p>
-        {% if error %}<div class="alert alert-danger py-2 text-center" style="font-size: 13px;">{{error}}</div>{% endif %}
-        <form method="POST">
-            <div class="mb-3">
-                <label class="form-label text-muted small">অ্যাডমিন পাসওয়ার্ড:</label>
-                <input type="password" name="password" class="form-control bg-dark text-white border-secondary" style="border-radius: 10px; padding: 12px;" required>
-            </div>
-            <button type="submit" class="btn btn-info w-100 text-dark py-3" style="border-radius: 10px;">লগইন করুন</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
-DASHBOARD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control Panel - BD Movie Zone</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { background-color: #06070d; color: #f1f5f9; font-family: 'Plus Jakarta Sans', sans-serif; padding-bottom: 50px; }
-        .dashboard-header { background: #0f111a; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 15px 10px; margin-bottom: 25px; }
-        .card { background: #0f111a; border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; color: #fff; }
+@app.on_callback_query()
+async def handle_query(client, callback_query):
+    chat_id = callback_query.message.chat.id
+    data = callback_query.data
+    
+    if data == "type_movie":
+        user_states[chat_id] = {'type': 'movie'}
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto"),
+             InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")]
+        ])
+        await callback_query.edit_message_text("🎬 **মুভি পোস্ট জেনারেশন:**\n\nমুভি ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
         
-        .movie-card-row {
-            display: flex;
-            background: #0f111a;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 15px;
-            border: 1px solid rgba(255,255,255,0.04);
-            align-items: center;
-            gap: 15px;
-        }
-        .movie-poster-box {
-            width: 70px;
-            height: 100px;
-            border-radius: 10px;
-            overflow: hidden;
-            flex-shrink: 0;
-            background: #000;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .movie-poster-box img { width: 100%; height: 100%; object-fit: cover; }
-        .movie-details-box { flex-grow: 1; min-width: 0; }
-        .movie-title-text { font-size: 15px; font-weight: 700; color: #fff; line-height: 1.3; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        
-        .tag-badge { background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold; display: inline-block; }
-        
-        .action-btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-        .action-btn { flex: 1; min-width: 100px; padding: 10px; border-radius: 8px; font-size: 11px; font-weight: bold; text-align: center; text-decoration: none !important; }
-        .btn-edit { background: linear-gradient(135deg, #0284c7, #0ea5e9); color: #fff; }
-        .btn-channel { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
-        .btn-delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
-        
-        .form-control, .form-control:focus { background-color: #161824 !important; border-color: rgba(255,255,255,0.1) !important; color: #fff !important; border-radius: 10px; }
-    </style>
-</head>
-<body>
+    elif data == "type_series":
+        user_states[chat_id] = {'type': 'series'}
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔍 TMDB অটো সার্চ", callback_data="mode_auto"),
+             InlineKeyboardButton("✏️ ম্যানুয়াল পোস্ট", callback_data="mode_manual")]
+        ])
+        await callback_query.edit_message_text("📺 **ওয়েব সিরিজ পোস্ট জেনারেশন:**\n\nসিরিজ ডাটা কিভাবে ইনপুট করতে চান?", reply_markup=markup)
 
-    <div class="dashboard-header shadow-sm">
-        <div class="container d-flex justify-content-between align-items-center">
-            <h5 class="mb-0 text-info" style="font-weight: 800; letter-spacing: 0.5px;">🎬 BD MOVIE ZONE</h5>
-            <div>
-                 <a href="{{prefix}}/admin/logout" class="btn btn-sm btn-danger px-3" style="border-radius: 8px; font-weight: bold;">Logout</a>
-            </div>
-        </div>
-    </div>
-
-    <div class="container">
+    elif data == "mode_auto":
+        user_states[chat_id]['step'] = 'waiting_for_search'
+        await callback_query.edit_message_text("🔍 অনুগ্রহ করে নামটি ইংরেজিতে টাইপ করে পাঠান:")
         
-        {% if request.args.get('msg') == 'success_posted' %}
-        <div class="alert alert-success alert-dismissible fade show" role="alert" style="border-radius:10px;">
-            🎉 <b>পোস্টটি আপনার আপডেট টেলিগ্রাম চ্যানেলে সফলভাবে পাঠানো হয়েছে!</b>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        {% endif %}
+    elif data == "mode_manual":
+        user_states[chat_id]['step'] = 'waiting_for_manual_title'
+        user_states[chat_id]['movie_data'] = {}
+        await callback_query.edit_message_text("✏️ **ম্যানুয়াল পোস্ট শুরু হচ্ছে...**\n\nপ্রথমে পোস্টের মূল টাইটেল/নাম লিখে পাঠান:")
 
-        <!-- সিস্টেম ডাইনামিক কনফিগারেশন উইজেট -->
-        <div class="card p-3 mb-4 shadow">
-            <h6 class="text-warning mb-3" style="font-weight: 800;">🔗 Settings &amp; Dynamic Integration Configuration</h6>
-            <form action="{{prefix}}/admin/save-settings" method="POST">
+    elif data.startswith("select_"):
+        parts = data.split("_")
+        movie_id = parts[1]
+        is_tv = parts[2] == "tv"
+        await fetch_tmdb_details(client, chat_id, movie_id, is_tv)
+
+    elif data.startswith("lang_"):
+        selected_lang = data.split("_")[1]
+        if selected_lang == "custom":
+            user_states[chat_id]['step'] = 'waiting_for_custom_lang'
+            await client.send_message(chat_id, "✏️ আপনার কাস্টম ল্যাঙ্গুয়েজটি টাইপ করে পাঠান (উদা: Tamil [Hindi]):")
+        else:
+            await save_lang_and_proceed(client, chat_id, selected_lang)
+        
+    elif data == "generate_series_code":
+        if chat_id in user_states and 'episodes' in user_states[chat_id] and len(user_states[chat_id]['episodes']) > 0:
+            await generate_series_html_output(client, chat_id)
+        else:
+            await callback_query.answer("কোনো ফাইল ফরোয়ার্ড করা হয়নি!", show_alert=True)
+
+async def save_lang_and_proceed(client, chat_id, language):
+    user_states[chat_id]['movie_data']['lang'] = language
+    is_manual = 'is_manual' in user_states[chat_id]
+
+    if is_manual:
+        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
+        await client.send_message(chat_id, "🎭 মুভির জনরা/ক্যাটাগরি পাঠান (উদা: Action, Comedy, Sci-Fi):")
+    else:
+        post_type = user_states[chat_id].get('type')
+        if post_type == 'movie':
+            user_states[chat_id]['step'] = 'waiting_for_480p'
+            await client.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        else:
+            user_states[chat_id]['step'] = 'waiting_for_season'
+            await client.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+
+
+# ==================== মেসেজ প্রসেসিং এরিয়া ====================
+
+@app.on_message(filters.private)
+async def handle_all_messages(client, message):
+    chat_id = message.chat.id
+    
+    if chat_id not in user_states or 'step' not in user_states[chat_id]:
+        user_states[chat_id] = {}
+        await handle_start(client, message)
+        return
+        
+    state = user_states[chat_id]['step']
+    post_type = user_states[chat_id].get('type')
+
+    # সার্চ প্রসেস
+    if state == 'waiting_for_search' and message.text:
+        query = message.text.strip()
+        await search_tmdb(client, chat_id, query, post_type)
+        return
+
+    # কাস্টম ল্যাঙ্গুয়েজ প্রসেস
+    elif state == 'waiting_for_custom_lang' and message.text:
+        await save_lang_and_proceed(client, chat_id, message.text.strip())
+        return
+
+    # --- ম্যানুয়াল পোস্ট কন্টেন্ট রিসিভার ---
+    elif state == 'waiting_for_manual_title' and message.text:
+        user_states[chat_id]['movie_data']['title'] = message.text.strip()
+        user_states[chat_id]['is_manual'] = True
+        user_states[chat_id]['step'] = 'waiting_for_manual_rating'
+        await client.send_message(chat_id, "⭐ IMDb রেটিং লিখে পাঠান (উদা: 8.2/10):")
+
+    elif state == 'waiting_for_manual_rating' and message.text:
+        user_states[chat_id]['movie_data']['rating'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_lang_selection'
+        await send_language_picker(client, chat_id)
+
+    elif state == 'waiting_for_manual_genres' and message.text:
+        user_states[chat_id]['movie_data']['genres'] = message.text.strip()
+        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
+        user_states[chat_id]['step'] = 'waiting_for_manual_poster'
+        await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
+
+    # ম্যানুয়াল পোস্টার রিসিভার
+    elif state == 'waiting_for_manual_poster' and message.photo:
+        await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        photo_id = message.photo.file_id
+        poster_url = await upload_image_to_cloud(photo_id)
+        
+        if poster_url:
+            user_states[chat_id]['movie_data']['poster'] = poster_url
+            user_states[chat_id]['step'] = 'waiting_for_manual_backdrop'
+            await client.send_message(chat_id, "📸 এবার হোমপেজ হিরো স্লাইডারের জন্য মুভির **চ্যাপ্টা ব্যানার (Landscape Backdrop Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
+        else:
+            await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
+
+    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
+    elif state == 'waiting_for_manual_backdrop' and message.photo:
+        await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        photo_id = message.photo.file_id
+        backdrop_url = await upload_image_to_cloud(photo_id)
+        
+        if backdrop_url:
+            user_states[chat_id]['movie_data']['backdrop'] = backdrop_url + "?size=original"
+            user_states[chat_id]['step'] = 'waiting_for_manual_plot'
+            await client.send_message(chat_id, "📖 মুভির সংক্ষেপ কাহিনী / Storyline টাইপ করে পাঠান:")
+        else:
+            await client.send_message(chat_id, "❌ ব্যানার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
+
+    elif state == 'waiting_for_manual_plot' and message.text:
+        user_states[chat_id]['movie_data']['plot'] = message.text.strip()
+        
+        if post_type == 'movie':
+            user_states[chat_id]['step'] = 'waiting_for_480p'
+            await client.send_message(chat_id, "✅ মুভি তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        else:
+            user_states[chat_id]['step'] = 'waiting_for_season'
+            await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+        return
+
+    # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
+    if post_type == 'movie' and state in ['waiting_for_480p', 'waiting_for_720p', 'waiting_for_1080p']:
+        file_msg_id = ""
+        if message.document or message.video:
+            file_type = 'document' if message.document else 'video'
+            file_id = message.document.file_id if message.document else message.video.file_id
+            
+            if state == 'waiting_for_480p':
+                quality_str = "480p (SD)"
+            elif state == 'waiting_for_720p':
+                quality_str = "720p (HD)"
+            else:
+                quality_str = "1080p (FullHD)"
                 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label text-warning font-weight-bold small">🌐 Blogger Website URL:</label>
-                        <input type="url" name="blogger_url" class="form-control" value="{{settings.blogger_url}}" placeholder="https://yourdomain.blogspot.com" required>
-                        <small class="text-muted small">চ্যানেল নোটিফিকেশন বাটনে এই লিংকটি সংযুক্ত হবে।</small>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label text-warning font-weight-bold small">📢 Notification Channel ID:</label>
-                        <input type="text" name="notification_channel_id" class="form-control" value="{{settings.notification_channel_id}}" placeholder="-1001234567890" required>
-                        <small class="text-muted small">যে আপডেট চ্যানেলে আপনি সরাসরি পোস্ট করতে চান।</small>
-                    </div>
-                </div>
+            dynamic_caption = generate_premium_caption(chat_id, quality=quality_str)
+            db_msg_id = await save_file_to_db_channel(chat_id, message.id, file_type, file_id, dynamic_caption)
+            if db_msg_id:
+                file_msg_id = f"msg_{db_msg_id}"
+            else:
+                await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি! অনুগ্রহ করে নিশ্চিত করুন যে বটটি চ্যানেলে এডমিন হিসেবে আছে।")
+                return
+        elif message.text and message.text.lower().strip() == '/skip':
+            file_msg_id = ""
+        else:
+            await client.send_message(chat_id, "⚠️ অনুগ্রহ করে ফাইলটি ফরোয়ার্ড করুন অথবা বাদ দিতে /skip লিখুন।")
+            return
 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label text-info font-weight-bold small">📢 Update Channel Link (For Bot Button):</label>
-                        <input type="url" name="update_channel_url" class="form-control" value="{{settings.update_channel_url}}" placeholder="https://t.me/yourchannel" required>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label text-info font-weight-bold small">💬 Support Group Link (For Bot Button):</label>
-                        <input type="url" name="group_channel_url" class="form-control" value="{{settings.group_channel_url}}" placeholder="https://t.me/yourgroup" required>
-                    </div>
-                </div>
+        if state == 'waiting_for_480p':
+            user_states[chat_id]['dl_480_key'] = file_msg_id
+            user_states[chat_id]['step'] = 'waiting_for_720p'
+            await client.send_message(chat_id, "👉 এবার **720p (HD)** কোয়ালিটির ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+            
+        elif state == 'waiting_for_720p':
+            user_states[chat_id]['dl_720_key'] = file_msg_id
+            user_states[chat_id]['step'] = 'waiting_for_1080p'
+            await client.send_message(chat_id, "👉 এবার **1080p (FullHD)** কোয়ালিটির ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+            
+        elif state == 'waiting_for_1080p':
+            user_states[chat_id]['dl_1080_key'] = file_msg_id
+            await generate_movie_html_output(client, chat_id)
 
-                <div class="mb-3">
-                    <label class="form-label text-info font-weight-bold small">📝 Custom Bot Caption Template:</label>
-                    <textarea name="custom_caption_template" class="form-control" rows="4" placeholder="HTML Caption Template here..." required>{{settings.custom_caption_template}}</textarea>
-                    <small class="text-muted small">বট যখন ইউজারকে ফাইল পাঠাবে, তখন এই ফরম্যাটে ক্যাপশন যাবে। টেমপ্লেট ভেরিয়েবল: <code>{title}</code>, <code>{lang}</code>, <code>{genres}</code>, <code>{quality}</code></small>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label text-info font-weight-bold small">👥 Authorized Admin Telegram IDs (কমা দিয়ে লিখুন):</label>
-                    <input type="text" name="admin_ids" class="form-control" value="{{admin_ids_txt}}" placeholder="12345678, 87654321">
-                    <small class="text-muted small">যাদেরকে বটের মাধ্যমে সরাসরি ফাইল পোস্টিং করার অনুমতি দিতে চান।</small>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label text-muted small">ডিরেক্ট লিঙ্কসমূহ / Popunder Ads (প্রতি লাইনে একটি লিংক):</label>
-                    <textarea name="direct_links" class="form-control" rows="3" placeholder="https://link.com" required>{% for link in settings.direct_links %}{{link}}&#10;{% endfor %}</textarea>
-                    <small class="text-muted small">ডাউনলোডের সময় ইউজার এই ডিরেক্ট লিংকগুলোর মধ্য দিয়ে যাবে (স্বয়ংক্রিয় রোটেশন হবে)।</small>
-                </div>
+    # --- ওয়েব সিরিজের ফাইল ও নাম রিসিভার ---
+    elif post_type == 'series' and state in ['waiting_for_season', 'waiting_for_episodes', 'waiting_for_ep_name']:
+        if state == 'waiting_for_season' and message.text:
+            user_states[chat_id]['season'] = message.text.strip()
+            user_states[chat_id]['episodes'] = []
+            user_states[chat_id]['step'] = 'waiting_for_episodes'
+            
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code")]
+            ])
+            await client.send_message(chat_id, 
+                             f"🎬 **সিজন {message.text.strip()} সেট করা হয়েছে!**\n\n"
+                             "এখন প্রথম এপিসোড থেকে শুরু করে একে একে ফাইলগুলো ফরোয়ার্ড করুন।", reply_markup=markup)
+            
+        elif state == 'waiting_for_episodes':
+            if message.document or message.video:
+                user_states[chat_id]['temp_file_id'] = message.document.file_id if message.document else message.video.file_id
+                user_states[chat_id]['temp_file_type'] = 'document' if message.document else 'video'
+                user_states[chat_id]['temp_message_id'] = message.id
                 
-                <div class="row">
-                    <div class="col-md-12 mb-3">
-                        <label class="form-label text-info font-weight-bold small">⏱️ ডাউনলোড প্রগ্রেস টাইমার (সেকেন্ডে):</label>
-                        <input type="number" name="download_timer" class="form-control" value="{{settings.download_timer}}" min="1" max="60" required>
-                    </div>
-                </div>
+                user_states[chat_id]['step'] = 'waiting_for_ep_name'
+                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
+                                          "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
+            else:
+                await client.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
 
-                <div class="mb-3" style="display:none;">
-                    <input type="hidden" name="revenue_share" value="{{settings.revenue_share}}">
-                </div>
+        elif state == 'waiting_for_ep_name' and message.text:
+            ep_title = message.text.strip()
+            
+            file_id = user_states[chat_id]['temp_file_id']
+            file_type = user_states[chat_id]['temp_file_type']
+            orig_msg_id = user_states[chat_id]['temp_message_id']
+            
+            dynamic_caption = generate_premium_caption(chat_id, episode_name=ep_title)
+            db_msg_id = await save_file_to_db_channel(chat_id, orig_msg_id, file_type, file_id, dynamic_caption)
+            
+            if db_msg_id:
+                file_key = f"msg_{db_msg_id}"
+                user_states[chat_id]['episodes'].append({
+                    'name': ep_title,
+                    'key': file_key
+                })
                 
-                <button type="submit" class="btn btn-warning w-100 text-dark py-2" style="border-radius:8px; font-weight: 800; font-size:13px;">আপডেট সেটিংস ও লিংক রোটেশন</button>
-            </form>
-        </div>
-
-        <div class="mb-4">
-            <input type="text" id="searchBox" class="form-control py-3 px-4" placeholder="🔍 সার্চ মুভি বা সিরিজ...">
-        </div>
-
-        <!-- লাইভ কার্ড লিস্ট -->
-        <div id="movieCardList">
-            {% for m in movies %}
-            <div class="movie-card-row shadow-sm">
-                <div class="movie-poster-box">
-                    <img src="{{m.movie_data.poster}}" alt="Poster">
-                </div>
-                <div class="movie-details-box">
-                    <div class="movie-title-text">{{m.movie_data.title}}</div>
-                    <span class="tag-badge">🗣️ {{m.movie_data.lang}}</span>
-                    
-                    <div class="action-btn-group">
-                         <a href="{{prefix}}/admin/send-channel/{{m._id}}" class="action-btn btn-channel">📢 Send to Channel</a>
-                         <a href="{{prefix}}/admin/edit/{{m._id}}" class="action-btn btn-edit">Edit / Live Sync</a>
-                         <a href="{{prefix}}/admin/delete/{{m._id}}" onclick="return confirm('মুছে ফেলতে চান?')" class="action-btn btn-delete">Delete</a>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.getElementById('searchBox').addEventListener('keyup', function() {
-            let val = this.value.toLowerCase();
-            let cards = document.querySelectorAll('.movie-card-row');
-            cards.forEach(card => {
-                let text = card.innerText.toLowerCase();
-                card.style.display = text.includes(val) ? '' : 'none';
-            });
-        });
-    </script>
-</body>
-</html>
-"""
-
-EDIT_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Movie - BD Movie Zone</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { background-color: #06070d; color: #fff; font-family: 'Plus Jakarta Sans', sans-serif; padding-top: 20px; padding-bottom: 50px; }
-        .form-card { background: #0f111a; border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.06); }
-        .form-control { background-color: #161824 !important; border-color: rgba(255,255,255,0.08) !important; color: #fff !important; border-radius: 10px; padding: 12px; }
-        .form-label { font-size: 13px; color: #94a3b8; font-weight: bold; margin-bottom: 6px; }
-        .btn-success { background: linear-gradient(135deg, #059669, #10b981); border: none; font-weight: bold; border-radius: 10px; padding: 14px; }
-        .btn-secondary { background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; border-radius: 10px; padding: 14px; }
-        
-        .live-search-container { background: #121520; border-radius: 12px; padding: 15px; border: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
-        .search-results-grid { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin; }
-        .search-result-item { width: 100px; flex-shrink: 0; cursor: pointer; text-align: center; }
-        .search-result-item img { width: 100%; height: 140px; border-radius: 8px; object-fit: cover; border: 1.5px solid rgba(255, 255, 255, 0.1); transition: 0.2s; }
-        .search-result-item img:hover { border-color: #fbbf24; transform: scale(1.05); }
-        .search-result-title { font-size: 10px; color: #cbd5e1; margin-top: 5px; height: 30px; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h4 class="text-info mb-3" style="font-weight: 800;">🛠️ এডিট ও ল্যাঙ্গুয়েজ আপডেট</h4>
-        
-        <div class="live-search-container">
-            <h6 class="text-warning mb-2" style="font-weight: 800;">🔍 TMDB ইনস্ট্যান্ট কুইক সার্চ এডিটর</h6>
-            <p class="text-muted small">মুভির নাম, TMDB ID অথবা TMDB লিংক দিয়ে "অনুসন্ধান" বোতামে চাপুন। আইডি বা লিংক দিলে সরাসরি আপডেট হয়ে যাবে:</p>
-            <div class="input-group mb-3">
-                <input type="text" id="liveSearchQuery" class="form-control bg-dark text-white border-secondary" placeholder="মুভির নাম, আইডি বা লিংক দিন...">
-                <button type="button" id="liveSearchBtn" class="btn btn-warning text-dark font-weight-bold">অনুসন্ধান</button>
-            </div>
-            
-            <div id="liveSearchResults" class="search-results-grid" style="display: none;"></div>
-        </div>
-
-        <form action="{{prefix}}/admin/edit/{{movie._id}}" method="POST" class="form-card">
-            <div class="mb-3">
-                <label class="form-label">মুভি টাইটেল:</label>
-                <input type="text" name="title" id="formTitle" class="form-control bg-dark text-white" value="{{movie.movie_data.title}}" required>
-            </div>
-            
-            <div class="mb-3">
-                <label class="form-label text-warning font-weight-bold">🗣️ ল্যাঙ্গুয়েজ ট্যাগ (যা ডিসপ্লে বা কার্ডে দেখাবে):</label>
-                <input type="text" name="lang" id="formLang" class="form-control bg-warning text-dark font-weight-bold" style="background-color: #fef08a !important; color: #000 !important;" value="{{movie.movie_data.lang}}" placeholder="উদা: Bangla / Dual Audio">
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">পোস্টার ইমেজ লিঙ্ক:</label>
-                <input type="text" name="poster" id="formPoster" class="form-control" value="{{movie.movie_data.poster}}">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">ব্যানার লিঙ্ক (Landscape Backdrop):</label>
-                <input type="text" name="backdrop" id="formBackdrop" class="form-control" value="{{movie.movie_data.backdrop}}">
-            </div>
-
-            <div class="row">
-                <div class="col-6 mb-3">
-                    <label class="form-label">IMDb রেটিং:</label>
-                    <input type="text" name="rating" id="formRating" class="form-control" value="{{movie.movie_data.rating}}">
-                </div>
-                <div class="col-6 mb-3">
-                    <label class="form-label">জনরা (Genres):</label>
-                    <input type="text" name="genres" id="formGenres" class="form-control" value="{{movie.movie_data.genres}}">
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">কাহিনী সংক্ষেপ (Plot):</label>
-                <textarea name="plot" id="formPlot" class="form-control" rows="4">{{movie.movie_data.plot}}</textarea>
-            </div>
-            <div class="mb-4">
-                <label class="form-label">স্ক্রিনশটস (প্রতি লাইনে একটি লিঙ্ক):</label>
-                <textarea name="screenshots" id="formScreens" class="form-control" rows="3">{% for s in movie.movie_data.screenshots %}{{s}}&#10;{% endfor %}</textarea>
-            </div>
-
-            <div class="d-flex flex-column gap-2">
-                <button type="submit" class="btn btn-success w-100">সংরক্ষণ করুন (Save & Update)</button>
-                <a href="{{prefix}}/admin" class="btn btn-secondary w-100 text-center">বাতিল করুন</a>
-            </div>
-        </form>
-    </div>
-
-    <script>
-        document.getElementById('liveSearchBtn').addEventListener('click', performTmdSearch);
-        document.getElementById('liveSearchQuery').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                performTmdSearch();
-            }
-        });
-
-        function performTmdSearch() {
-            let input = document.getElementById('liveSearchQuery').value.trim();
-            if (!input) {
-                alert("অনুগ্রহ করে মুভি বা সিরিজের নাম, TMDB ID অথবা TMDB লিংক দিন!");
-                return;
-            }
-
-            let resultContainer = document.getElementById('liveSearchResults');
-            resultContainer.style.display = "flex";
-
-            let isUrl = input.includes("themoviedb.org");
-            let isOnlyNumber = /^[0-9]+$/.test(input);
-
-            if (isUrl || isOnlyNumber) {
-                resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সরাসরি আইডি/লিংক ডিটেক্ট করা হয়েছে! ডাটা সিঙ্ক করা হচ্ছে...</div>";
+                user_states[chat_id]['step'] = 'waiting_for_episodes'
                 
-                let isTv = {% if movie.type == 'series' %}true{% else %}false{% endif %};
-                if (isUrl) {
-                    if (input.includes("/tv/")) {
-                        isTv = true;
-                    } else if (input.includes("/movie/")) {
-                        isTv = false;
-                    }
-                }
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ কোড জেনারেট করুন", callback_data="generate_series_code")]
+                ])
+                await client.send_message(chat_id, f"✅ **'{ep_title}' সফলভাবে যুক্ত হয়েছে!**\n\n"
+                                          f"পরের ফাইলটি ফরোয়ার্ড করুন অথবা কোড তৈরি করতে নিচের বাটনে ক্লিক করুন:", reply_markup=markup)
+            else:
+                await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি!")
 
-                fetch('{{prefix}}/api/tmdb-fetch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        tmdb_input: input,
-                        is_tv: isTv
-                    })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ ডাটা সিঙ্ক ব্যর্থ হয়েছে! লিংক বা আইডি সঠিক কিনা যাচাই করুন।</div>";
-                    } else {
-                        autofillForm(data);
-                        resultContainer.style.display = "none";
-                        alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার নিচে থাকা 'সংরক্ষণ করুন' বাটন চাপুন।");
-                    }
-                })
-                .catch(err => {
-                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ কানেকশন এরর!</div>";
-                });
-                return;
-            }
+# TMDB সার্চ কুয়েরি
+async def search_tmdb(client, chat_id, query, post_type):
+    global http_session
+    if not http_session:
+        return
+    
+    is_tv = "tv" if post_type == "series" else "movie"
+    url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
+    
+    try:
+        async with http_session.get(url, timeout=10) as resp:
+            response = await resp.json()
+        results = response.get('results', [])
+        
+        if results:
+            markup_buttons = []
+            for item in results[:5]:
+                title = item.get('title') if post_type == "movie" else item.get('name')
+                release_date = item.get('release_date') if post_type == "movie" else item.get('first_air_date')
+                year = release_date.split('-')[0] if release_date else 'N/A'
+                
+                button_text = f"{title} ({year})"
+                markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
+                
+            await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফেলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
+        else:
+            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
+    except Exception as e:
+        print(f"Async TMDB Search Error: {e}")
+        await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
-            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ অনুসন্ধান করা হচ্ছে...</div>";
+# TMDB ডিটেইলস সংগ্রহ
+async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
+    global http_session
+    if not http_session:
+        return
+        
+    endpoint = "tv" if is_tv else "movie"
+    url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}"
+    
+    try:
+        async with http_session.get(url, timeout=10) as resp:
+            data = await resp.json()
+        title = data.get('title') if not is_tv else data.get('name')
+        release_date = data.get('release_date') if not is_tv else data.get('first_air_date')
+        year = release_date.split('-')[0] if release_date else 'N/A'
+        rating = f"{data.get('vote_average'):.1f}/10" if data.get('vote_average') else 'N/A'
+        genres = ", ".join([g['name'] for g in data.get('genres', [])])
+        
+        poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else 'https://via.placeholder.com/300x450'
+        backdrop = f"https://image.tmdb.org/t/p/original{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
+        plot = data.get('overview', 'No description available.')
 
-            fetch('{{prefix}}/api/tmdb-search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: input,
-                    is_tv: {% if movie.type == 'series' %}true{% else %}false{% endif %}
-                })
-            })
-            .then(res => res.json())
-            .then(results => {
-                if (!results || results.length === 0) {
-                    resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ কোনো ফলাফল পাওয়া যায়নি!</div>";
-                    return;
-                }
-
-                resultContainer.innerHTML = "";
-                results.forEach(item => {
-                    let id = item.id;
-                    let title = item.title || item.name;
-                    let release = item.release_date || item.first_air_date || '';
-                    let year = release ? release.split('-')[0] : 'N/A';
-                    let posterPath = item.poster_path ? 'https://image.tmdb.org/t/p/w185' + item.poster_path : 'https://via.placeholder.com/100x140?text=No+Poster';
-
-                    let itemIsTv = {% if movie.type == 'series' %}true{% else %}false{% endif %};
-
-                    let div = document.createElement('div');
-                    div.className = "search-result-item";
-                    div.innerHTML = `
-                        <img src="${posterPath}" alt="${title}" onclick="autofillWithTmdId('${id}', ${itemIsTv})">
-                        <div class="search-result-title">${title} (${year})</div>
-                    `;
-                    resultContainer.appendChild(div);
-                });
-            })
-            .catch(err => {
-                resultContainer.innerHTML = "<div style='color:#ef4444; font-size:13px; padding:10px;'>❌ অনুসন্ধান ব্যর্থ হয়েছে!</div>";
-            });
+        user_states[chat_id]['movie_data'] = {
+            'title': f"{title} ({year})",
+            'poster': poster,
+            'backdrop': backdrop,
+            'rating': rating,
+            'genres': genres,
+            'plot': plot
         }
 
-        function autofillWithTmdId(id, isTv) {
-            let resultContainer = document.getElementById('liveSearchResults');
-            resultContainer.innerHTML = "<div style='color:#fbbf24; font-size:13px; font-weight:bold; padding:10px;'>⚡ সিঙ্ক করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন...</div>";
+        user_states[chat_id]['step'] = 'waiting_for_lang_selection'
+        await send_language_picker(client, chat_id, f"✅ সিলেক্ট হয়েছে: **{title}**\n\n🗣 অনুগ্রহ করে ভাষাটি সিলেক্ট করুন:")
             
-            fetch('{{prefix}}/api/tmdb-fetch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tmdb_input: id,
-                    is_tv: isTv
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.error) {
-                    alert("ডাটা সিঙ্ক ব্যর্থ হয়েছে!");
-                } else {
-                    autofillForm(data);
-                    resultContainer.style.display = "none";
-                    alert("🎉 সঠিক তথ্য নিখুঁতভাবে ফর্মের ঘরে বসে গেছে! এবার 'সংরক্ষণ করুন' বাটন চাপুন।");
-                }
-            })
-            .catch(err => { alert("কানেকশন এরর!"); });
-        }
+    except Exception as e:
+        print(f"Async TMDB Details Error: {e}")
+        await client.send_message(chat_id, "❌ তথ্য লোড করতে ত্রুটি ঘটেছে!")
 
-        function autofillForm(data) {
-            document.getElementById('formTitle').value = data.title || "";
-            document.getElementById('formPoster').value = data.poster || "";
-            document.getElementById('formBackdrop').value = data.backdrop || "";
-            document.getElementById('formRating').value = data.rating || "";
-            document.getElementById('formGenres').value = data.genres || "";
-            document.getElementById('formPlot').value = data.plot || "";
-            if (data.screenshots) {
-                document.getElementById('formScreens').value = data.screenshots.join('\\n');
-            } else {
-                document.getElementById('formScreens').value = "";
-            }
-        }
-    </script>
-</body>
-</html>
-"""
 
-# ==================== কোয়ালিটি হাব টেমপ্লেট (HUB_HTML) ====================
+# ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-HUB_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Download - {{movie.movie_data.title}}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            background: radial-gradient(circle at top, #0f1526 0%, #03050a 100%);
-            color: #fff;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            min-height: 100vh;
-            margin: 0;
-            padding: 40px 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            overflow-x: hidden;
-        }
+# ১. মুভি কোড জেনারেটর (উন্নত ডাবল-ক্লিক এনিমেশন সহ)
+async def generate_movie_html_output(client, chat_id):
+    data = user_states[chat_id]['movie_data']
+    key_480 = user_states[chat_id].get('dl_480_key', '')
+    key_720 = user_states[chat_id].get('dl_720_key', '')
+    key_1080 = user_states[chat_id].get('dl_1080_key', '')
 
-        .backdrop-blur {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-image: url('{{movie.movie_data.backdrop}}');
-            background-size: cover;
-            background-position: center;
-            filter: blur(50px) brightness(0.15);
-            z-index: -1;
-        }
+    link_480 = f"https://t.me/{BOT_USERNAME}?start={key_480}" if key_480 else ""
+    link_720 = f"https://t.me/{BOT_USERNAME}?start={key_720}" if key_720 else ""
+    link_1080 = f"https://t.me/{BOT_USERNAME}?start={key_1080}" if key_1080 else ""
 
-        .movie-hub-card {
-            background: rgba(13, 19, 33, 0.8);
-            backdrop-filter: blur(25px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 24px;
-            width: 100%;
-            max-width: 580px;
-            padding: 25px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
-            text-align: center;
-        }
+    ad_480 = get_button_ad_link(chat_id)
+    ad_720 = get_button_ad_link(chat_id)
+    ad_1080 = get_button_ad_link(chat_id)
 
-        .movie-poster {
-            width: 110px;
-            height: 160px;
-            border-radius: 12px;
-            object-fit: cover;
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-            margin-bottom: 15px;
-        }
+    # প্রিমিয়াম বাটন স্টাইলিং ও মার্কআপ
+    btn_480_html = ""
+    if link_480:
+        btn_480_html = f'''
+        <a href="{link_480}" data-ad="{ad_480}" class="download-btn btn-sd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 480p (SD)</span>
+        </a>'''
 
-        .movie-title {
-            font-size: 20px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            margin-bottom: 10px;
-            line-height: 1.3;
-        }
+    btn_720_html = ""
+    if link_720:
+        btn_720_html = f'''
+        <a href="{link_720}" data-ad="{ad_720}" class="download-btn btn-hd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 720p (HD)</span>
+        </a>'''
 
-        .meta-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            justify-content: center;
-            margin-bottom: 20px;
-        }
+    btn_1080_html = ""
+    if link_1080:
+        btn_1080_html = f'''
+        <a href="{link_1080}" data-ad="{ad_1080}" class="download-btn btn-fhd">
+            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span class="btn-label-text">Download 1080p (FullHD)</span>
+        </a>'''
 
-        .meta-badge {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #94a3b8;
-        }
+    html_code = f"""<!-- MOVIE POST START -->
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    .movie-container {{
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #e2e8f0;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 10px;
+    }}
+    .poster-wrapper {{
+        text-align: center;
+        margin-bottom: 30px;
+        position: relative;
+    }}
+    .poster-img {{
+        max-width: 320px;
+        width: 100%;
+        height: auto;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+        transition: transform 0.4s ease;
+    }}
+    .poster-img:hover {{
+        transform: scale(1.02);
+    }}
+    .info-card {{
+        background: rgba(17, 18, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 25px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }}
+    .info-card h3 {{
+        margin-top: 0;
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+    }}
+    .info-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+    }}
+    .info-item {{
+        font-size: 14px;
+        line-height: 1.5;
+    }}
+    .info-item strong {{
+        color: #94a3b8;
+    }}
+    .rating-badge {{
+        color: #fbbf24;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }}
+    .synopsis-section {{
+        margin: 25px 0;
+    }}
+    .synopsis-title {{
+        color: #f43f5e;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #f43f5e;
+        padding-left: 12px;
+        margin-bottom: 12px;
+    }}
+    .synopsis-text {{
+        line-height: 1.7;
+        color: #94a3b8;
+        font-size: 15px;
+    }}
+    .guide-box {{
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-left: 5px solid #38bdf8;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 25px 0;
+    }}
+    .guide-title {{
+        color: #38bdf8;
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }}
+    .guide-text {{
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #cbd5e1;
+    }}
+    .download-area {{
+        background: #0f1015;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 30px 20px;
+        text-align: center;
+        margin: 25px 0;
+    }}
+    .download-area h3 {{
+        color: #ffffff;
+        font-size: 18px;
+        font-weight: 800;
+        margin-top: 0;
+        margin-bottom: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }}
+    .button-container {{
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-width: 400px;
+        margin: 0 auto;
+    }}
+    .download-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 16px 24px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 14px;
+        text-decoration: none;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        border: none;
+    }}
+    .btn-sd {{
+        background: rgba(255, 255, 255, 0.05);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }}
+    .btn-sd:hover {{
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+    }}
+    .btn-hd {{
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: #ffffff;
+        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
+    }}
+    .btn-hd:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
+    }}
+    .btn-fhd {{
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        color: #ffffff;
+        box-shadow: 0 4px 15px rgba(6, 182, 212, 0.2);
+    }}
+    .btn-fhd:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(6, 182, 212, 0.35);
+    }}
+    @keyframes pulse-btn {{
+        0% {{ transform: scale(1); }}
+        50% {{ transform: scale(1.03); }}
+        100% {{ transform: scale(1); }}
+    }}
+    .btn-clicked {{
+        animation: pulse-btn 1.5s infinite;
+    }}
+</style>
 
-        .meta-rating {
-            background: rgba(251, 191, 36, 0.1);
-            color: #fbbf24;
-            border-color: rgba(255, 191, 36, 0.2);
-        }
-
-        /* প্রিমিয়াম স্ক্রিনশট গ্রিড সিএসএস */
-        .screenshots-section-title {
-            font-size: 12px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #38bdf8;
-            margin: 25px 0 10px 0;
-            text-align: left;
-        }
-        .screenshots-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin-bottom: 25px;
-        }
-        .screenshot-item {
-            width: 100%;
-            aspect-ratio: 16 / 9;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1.5px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-        }
-        .screenshot-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        /* বাংলায় ডাউনলোড নির্দেশিকা কার্ড সিএসএস */
-        .guidelines-card {
-            background: rgba(251, 191, 36, 0.03);
-            border: 1px solid rgba(251, 191, 36, 0.12);
-            border-radius: 16px;
-            padding: 15px;
-            margin-bottom: 25px;
-            text-align: left;
-        }
-        .guidelines-title {
-            font-size: 12px;
-            font-weight: 800;
-            color: #fbbf24;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .guidelines-text {
-            font-size: 11px;
-            color: #cbd5e1;
-            line-height: 1.5;
-        }
-
-        .section-divider {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: #64748b;
-            margin: 20px 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            justify-content: center;
-            font-weight: 800;
-        }
-        .section-divider::before, .section-divider::after {
-            content: '';
-            height: 1px;
-            width: 40px;
-            background: rgba(255,255,255,0.08);
-        }
-
-        .download-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .download-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            border-radius: 16px;
-            padding: 12px 18px;
-            transition: all 0.3s ease;
-        }
-
-        .download-row:hover {
-            background: rgba(255, 255, 255, 0.04);
-            border-color: rgba(255, 255, 255, 0.08);
-            transform: translateY(-2px);
-        }
-
-        .quality-info {
-            text-align: left;
-        }
-
-        .quality-label {
-            font-size: 14px;
-            font-weight: 800;
-            color: #cbd5e1;
-        }
-
-        .size-label {
-            font-size: 11px;
-            color: #64748b;
-            font-weight: 600;
-            margin-top: 2px;
-        }
-
-        .premium-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 10px 18px;
-            border-radius: 50px;
-            font-size: 11px;
-            font-weight: 800;
-            text-decoration: none !important;
-            color: #fff !important;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            border: none;
-            cursor: pointer;
-        }
-
-        .premium-btn:hover {
-            transform: scale(1.05);
-        }
-
-        .btn-sunset {
-            background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
-            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.25);
-        }
-        .btn-sunset:hover { box-shadow: 0 6px 20px rgba(245, 158, 11, 0.45); }
-
-        .btn-electric {
-            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
-            color: #030712 !important;
-            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.25);
-        }
-        .btn-electric:hover { box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45); }
-
-        .btn-royal {
-            background: linear-gradient(135deg, #b156ff 0%, #7200d6 100%);
-            box-shadow: 0 4px 15px rgba(177, 86, 255, 0.25);
-        }
-        .btn-royal:hover { box-shadow: 0 6px 20px rgba(177, 86, 255, 0.45); }
-
-        .season-tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            background: rgba(255, 255, 255, 0.03);
-            padding: 6px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .season-tab-btn {
-            flex: 1;
-            padding: 10px;
-            border-radius: 8px;
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .season-tab-btn.active {
-            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
-            color: #030712;
-            box-shadow: 0 4px 12px rgba(0, 242, 254, 0.25);
-        }
-
-        .episode-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 10px;
-            transition: all 0.3s ease;
-        }
-
-        .episode-card.open {
-            border-color: rgba(0, 242, 254, 0.2);
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .episode-bar {
-            padding: 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            font-weight: 700;
-            font-size: 14px;
-            color: #cbd5e1;
-        }
-
-        .episode-icon {
-            font-size: 11px;
-            color: #94a3b8;
-            transition: transform 0.3s ease;
-        }
-
-        .episode-content-box {
-            display: none;
-            padding: 15px;
-            background: rgba(0, 0, 0, 0.25);
-            border-top: 1px solid rgba(255, 255, 255, 0.03);
-        }
-    </style>
-</head>
-<body>
-
-    <div class="backdrop-blur"></div>
-
-    <div class="movie-hub-card shadow-lg">
-        
-        <img src="{{movie.movie_data.poster}}" alt="Poster" class="movie-poster">
-        <div class="movie-title">{{movie.movie_data.title}}</div>
-        
-        <div class="meta-tags">
-            <span class="meta-badge meta-rating">⭐️ {{movie.movie_data.rating}}</span>
-            <span class="meta-badge">{{movie.movie_data.lang}}</span>
-            <span class="meta-badge">{{movie.movie_data.genres}}</span>
-        </div>
-
-        <!-- কাস্টম ১: স্ক্রিনশট গ্রিড সেকশন (যদি ব্যাকএন্ডে স্ক্রিনশট ডাটা থাকে) -->
-        {% if movie.movie_data.screenshots %}
-        <div class="screenshots-section-title">📸 Movie Real Quality (Screenshots)</div>
-        <div class="screenshots-grid">
-            {% for screen in movie.movie_data.screenshots %}
-            <div class="screenshot-item">
-                <img src="{{screen}}" alt="Screenshot">
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- কাস্টম ২: বাংলায় সুন্দর প্রিমিয়াম ডাউনলোড নির্দেশিকা কার্ড -->
-        <div class="guidelines-card">
-            <div class="guidelines-title">⚠️ ডাউনলোড করার সহজ নিয়মাবলী:</div>
-            <div class="guidelines-text">
-                ১. প্রথমে উপরের স্ক্রিনশট দেখে ভিডিওর রিয়েল কোয়ালিটি যাচাই করে নিন।<br>
-                ২. নিচের তালিকা থেকে আপনার পছন্দের কোয়ালিটির ডানপাশের <b>Download</b> বোতামে ক্লিক করুন।<br>
-                ৩. পরবর্তী পেজে থাকা নিয়ন প্রগ্রেস টাইমারটি শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।<br>
-                ৪. ডাউনলোড বোতামে প্রথম ক্লিকে বিজ্ঞাপন খুললে সেটি কেটে দিয়ে পুনরায় ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।
-            </div>
-        </div>
-
-        <div class="section-divider">Select Quality / Episode</div>
-
-        <div class="download-grid">
-            {% if movie.type == 'movie' %}
-                {% if movie.dl_links.get('480p') %}
-                <div class="download-row">
-                    <div class="quality-info">
-                        <div class="quality-label">🎥 SD 480p Quality</div>
-                        <div class="size-label">File Size: Normal | Format: MKV</div>
-                    </div>
-                    <a href="{{prefix}}/download/{{movie._id}}/480p" class="premium-btn btn-sunset">Download 480p</a>
-                </div>
-                {% endif %}
-
-                {% if movie.dl_links.get('720p') %}
-                <div class="download-row">
-                    <div class="quality-info">
-                        <div class="quality-label">🎬 HD 720p Quality</div>
-                        <div class="size-label">File Size: Optimized | Format: MKV</div>
-                    </div>
-                    <a href="{{prefix}}/download/{{movie._id}}/720p" class="premium-btn btn-electric">Download 720p</a>
-                </div>
-                {% endif %}
-
-                {% if movie.dl_links.get('1080p') %}
-                <div class="download-row">
-                    <div class="quality-info">
-                        <div class="quality-label">🍿 Full HD 1080p Quality</div>
-                        <div class="size-label">File Size: Full Quality | Format: MKV</div>
-                    </div>
-                    <a href="{{prefix}}/download/{{movie._id}}/1080p" class="premium-btn btn-royal">Download 1080p</a>
-                </div>
-                {% endif %}
-            {% else %}
-                {% if not movie.get('episodes') %}
-                    <p class="text-muted small">No episodes uploaded yet.</p>
-                {% else %}
-                    {% for ep in movie.episodes %}
-                    <div class="episode-card">
-                        <div class="episode-bar" onclick="toggleEpisode('ep-{{loop.index}}', this)">
-                            <span>⚡ {{ep.name}}</span>
-                            <span class="episode-icon">▼</span>
-                        </div>
-                        <div id="ep-{{loop.index}}" class="episode-content-box">
-                            <div class="d-flex flex-column gap-2">
-                                {% if ep.links and ep.links.get('480p') %}
-                                <a href="{{prefix}}/download/{{movie._id}}/480p" class="premium-btn btn-sunset w-100 justify-content-center">🎥 SD 480p Quality</a>
-                                {% endif %}
-                                {% if ep.links and ep.links.get('720p') %}
-                                <a href="{{prefix}}/download/{{movie._id}}/720p" class="premium-btn btn-electric w-100 justify-content-center">🎬 HD 720p Quality</a>
-                                {% endif %}
-                                {% if ep.links and ep.links.get('1080p') %}
-                                <a href="{{prefix}}/download/{{movie._id}}/1080p" class="premium-btn btn-royal w-100 justify-content-center">🍿 Full HD 1080p Quality</a>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                {% endif %}
-            {% endif %}
-        </div>
-        
-        <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity: 0.6;">⚡ Powered by BD Movie Zone Hub</p>
+<div class="movie-container">
+    <div class="poster-wrapper">
+        <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
+        <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
     </div>
 
-    <script>
-        function toggleEpisode(id, barElement) {
-            const contentBox = document.getElementById(id);
-            const icon = barElement.querySelector('.episode-icon');
-            const card = barElement.parentElement;
-
-            if (contentBox.style.display === "block") {
-                contentBox.style.display = "none";
-                icon.style.transform = "rotate(0deg)";
-                card.classList.remove('open');
-            } else {
-                contentBox.style.display = "block";
-                icon.style.transform = "rotate(180deg)";
-                card.classList.add('open');
-            }
-        }
-    </script>
-</body>
-</html>
-"""
-
-# ==================== প্রিমিয়াম নিয়ন প্রগ্রেস টাইমার টেমপ্লেট (DOWNLOAD_HTML) ====================
-
-DOWNLOAD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Download - {{movie.movie_data.title}}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { 
-            background: radial-gradient(circle, #0e111d 0%, #05060a 100%); 
-            color: #fff; 
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            overflow-x: hidden;
-            position: relative;
-        }
-        
-        .backdrop-bg {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-image: url('{{movie.movie_data.backdrop}}');
-            background-size: cover;
-            background-position: center;
-            filter: blur(40px) brightness(0.25);
-            z-index: -1;
-        }
-
-        .landing-card {
-            background: rgba(15, 17, 26, 0.75);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.09);
-            border-radius: 24px;
-            width: 100%;
-            max-width: 480px;
-            padding: 30px;
-            text-align: center;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-            position: relative;
-        }
-
-        .movie-poster {
-            width: 130px;
-            height: 185px;
-            border-radius: 16px;
-            object-fit: cover;
-            border: 2px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 15px 30px rgba(0,0,0,0.6);
-            margin-bottom: 20px;
-        }
-
-        .movie-title {
-            font-size: 20px;
-            font-weight: 800;
-            color: #fff;
-            margin-bottom: 8px;
-            letter-spacing: -0.5px;
-            line-height: 1.3;
-        }
-
-        .quality-badge {
-            background: rgba(0, 242, 254, 0.08);
-            color: #00f2fe;
-            font-weight: 700;
-            font-size: 12px;
-            padding: 6px 16px;
-            border-radius: 30px;
-            display: inline-block;
-            margin-bottom: 25px;
-            border: 1px solid rgba(0, 242, 254, 0.2);
-            letter-spacing: 0.5px;
-        }
-
-        .progress-ring-container {
-            position: relative;
-            width: 120px;
-            height: 120px;
-            margin: 15px auto;
-        }
-
-        .progress-ring {
-            transform: rotate(-90deg);
-        }
-
-        .progress-ring__circle {
-            transition: stroke-dashoffset 0.3s;
-            transform-origin: 50% 50%;
-        }
-
-        .timer-display {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 28px;
-            font-weight: 800;
-            color: #00f2fe;
-            text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
-        }
-
-        .status-text {
-            font-size: 14px;
-            color: #94a3b8;
-            margin-top: 15px;
-            font-weight: 600;
-        }
-
-        .btn-download {
-            display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
-            color: #030712 !important;
-            font-weight: 800;
-            font-size: 16px;
-            padding: 16px 32px;
-            border-radius: 50px;
-            border: none;
-            box-shadow: 0 0 20px rgba(0, 242, 254, 0.35);
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            width: 100%;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            cursor: pointer;
-            margin-top: 15px;
-        }
-
-        .btn-download:hover {
-            transform: scale(1.03);
-            box-shadow: 0 0 30px rgba(0, 242, 254, 0.6);
-        }
-
-        .btn-download svg {
-            width: 20px;
-            height: 20px;
-            fill: currentColor;
-        }
-
-        /* প্রিমিয়াম ডাউনলোড নির্দেশিকা বক্স সিএসএস */
-        .download-guide-box {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 14px;
-            padding: 15px;
-            margin-top: 25px;
-            text-align: left;
-        }
-        .download-guide-title {
-            font-size: 12px;
-            font-weight: 800;
-            color: #00f2fe;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .download-guide-step {
-            font-size: 11px;
-            color: #94a3b8;
-            margin-bottom: 4px;
-            line-height: 1.4;
-        }
-    </style>
-</head>
-<body>
-
-    <div class="backdrop-bg"></div>
-
-    <div class="landing-card shadow-lg">
-        <img src="{{movie.movie_data.poster}}" alt="Poster" class="movie-poster">
-        <div class="movie-title">{{movie.movie_data.title}}</div>
-        <div class="quality-badge">Selected: {{quality}}</div>
-
-        <div id="countdownBox">
-            <div class="progress-ring-container">
-                <svg class="progress-ring" width="120" height="120">
-                    <circle class="progress-ring__background" stroke="rgba(255,255,255,0.05)" stroke-width="6" fill="transparent" r="50" cx="60" cy="60"/>
-                    <circle class="progress-ring__circle" stroke="url(#gradient)" stroke-width="6" fill="transparent" r="50" cx="60" cy="60"/>
-                </svg>
-                <div class="timer-display" id="timerValue">{{timer}}</div>
-            </div>
-            <div class="status-text" id="statusLabel">Securing connection... Please wait</div>
-        </div>
-
-        <!-- ডাবল-ক্লিক মনিটাইজেশন সমৃদ্ধ ডাউনলোড বোতাম -->
-        <button id="downloadBtn" class="btn-download" onclick="triggerDownload()">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.53c-.26-.81-1-1.4-1.9-1.4h-1v-3c0-.55-.45-1-1-1h-6v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-            ⚡ Get Download File (Telegram)
-        </button>
-
-        <!-- বাংলায় ডাউনলোড নির্দেশিকা বক্স -->
-        <div class="download-guide-box">
-            <div class="download-guide-title">📥 ফাইলটি সংগ্রহের নিয়মাবলী:</div>
-            <div class="download-guide-step">১. উপরে টাইমার শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।</div>
-            <div class="download-guide-step">২. <b>Get Download File</b> বোতামে প্রথম ক্লিক করলে বিজ্ঞাপনের লিংক খুলবে।</div>
-            <div class="download-guide-step">৩. বিজ্ঞাপনের পেজটি বন্ধ করে পুনরায় একই বোতামে ক্লিক করুন; ফাইলটি টেলিগ্রামে চলে যাবে।</div>
-        </div>
-        
-        <p class="text-muted small mt-4 mb-0" style="font-size: 11px; opacity:0.6;">⚠️ Disable adblocker if downloading is interrupted.</p>
+    <!-- মেটা ডেটা (সার্চ ক্রলার ও ফিল্টারের জন্য সংরক্ষিত) -->
+    <div class="info-text" style="display: none;">
+        <div>Rating: {data['rating']}</div>
+        <div>Language: {data['lang']}</div>
+        <div>Genres: {data['genres']}</div>
     </div>
 
-    <svg width="0" height="0">
-        <defs>
-            <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#00f2fe" />
-                <stop offset="100%" stop-color="#4facfe" />
-            </linearGradient>
-        </defs>
-    </svg>
+    <div class="info-card">
+        <h3>Movie Information</h3>
+        <div class="info-grid">
+            <div class="info-item"><strong>Title:</strong> {data['title']}</div>
+            <div class="info-item"><strong>IMDb Rating:</strong> <span class="rating-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{data['rating']}</span></div>
+            <div class="info-item"><strong>Language:</strong> {data['lang']}</div>
+            <div class="info-item"><strong>Genres:</strong> {data['genres']}</div>
+        </div>
+    </div>
 
-    <script>
-        const circle = document.querySelector('.progress-ring__circle');
-        const radius = circle.r.baseVal.value;
-        const circumference = radius * 2 * Math.PI;
+    <div class="synopsis-section">
+        <div class="synopsis-title">Synopsis / Storyline</div>
+        <div class="synopsis-text">{data['plot']}</div>
+    </div>
 
-        circle.style.strokeDasharray = `${circumference} ${circumference}`;
-        circle.style.strokeDashoffset = `${circumference}`;
+    <div class="guide-box">
+        <div class="guide-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            ডাউনলোড করার সঠিক নিয়ম:
+        </div>
+        <p class="guide-text">
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+        </p>
+    </div>
 
-        function setProgress(percent) {
-            const offset = circumference - (percent / 100 * circumference);
-            circle.style.strokeDashoffset = offset;
-        }
+    <div class="download-area">
+        <h3>Secure Download Links</h3>
+        <div class="button-container">
+            {btn_480_html}
+            {btn_720_html}
+            {btn_1080_html}
+        </div>
+    </div>
+</div>
 
-        let initialTimer = parseInt("{{timer}}") || 5;
-        let countdown = initialTimer;
+<script>
+document.querySelectorAll('.download-btn').forEach(function(element) {{
+    element.addEventListener('click', function(e) {{
+        var adLink = this.getAttribute('data-ad');
         
-        setProgress(100);
-
-        const interval = setInterval(() => {
-            countdown--;
-            document.getElementById('timerValue').innerText = countdown;
+        if (!adLink || adLink === 'None' || adLink === '') {{
+            return; 
+        }}
+        
+        if (this.getAttribute('data-clicked') !== 'true') {{
+            e.preventDefault(); 
+            window.open(adLink, '_blank');
+            this.setAttribute('data-clicked', 'true');
+            this.classList.add('btn-clicked');
             
-            let percent = (countdown / initialTimer) * 100;
-            setProgress(percent);
-
-            if (countdown <= 0) {
-                clearInterval(interval);
-                document.getElementById('countdownBox').style.display = 'none';
-                document.getElementById('downloadBtn').style.display = 'inline-flex';
-            }
-        }, 1000);
-
-        // --- ২-ধাপের ডাবল-ক্লিক রিডাইরেকশন স্ক্রিপ্ট ---
-        let clickCount = 0;
-        function triggerDownload() {
-            var adLink = "{{direct_link}}";
-            var tgLink = "{{tg_bot_link}}";
+            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            this.style.borderColor = '#10b981';
+            this.style.color = '#ffffff';
+            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
             
-            if (clickCount === 0 && adLink && adLink !== tgLink) {
-                clickCount = 1;
-                window.open(adLink, "_blank"); // প্রথম ক্লিক: স্পনসর লিংক খুলবে
-                const btn = document.getElementById('downloadBtn');
-                btn.innerHTML = "🟢 CLICK AGAIN FOR TELEGRAM FILE";
-                btn.style.background = "linear-gradient(135deg, #10b981 0%, #059669 100%)";
-            } else {
-                window.location.href = tgLink; // দ্বিতীয় ক্লিক: টেলিগ্রাম ফাইলে নিয়ে যাবে
-            }
-        }
-    </script>
-</body>
-</html>
-"""
+            var mainText = this.querySelector('.btn-label-text');
+            if (mainText) {{
+                mainText.innerHTML = '⚡ Click Again to Download';
+            }}
+        }}
+    }});
+}});
+</script>
+<!-- MOVIE POST END -->"""
+
+    await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
+    user_states[chat_id] = {}
+
+
+# ২. ওয়েব সিরিজ কোড জেনারেটর (গ্রিড-কার্ড এবং প্রিমিয়াম বাটন ট্রানজিশন সহ)
+async def generate_series_html_output(client, chat_id):
+    data = user_states[chat_id]['movie_data']
+    season = user_states[chat_id]['season']
+    episodes = user_states[chat_id]['episodes']
+
+    episode_buttons_html = ""
+    for ep in episodes:
+        link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
+        ad_link = get_button_ad_link(chat_id)
+        
+        episode_buttons_html += f"""
+        <a href="{link}" data-ad="{ad_link}" class="download-btn series-btn">
+            <span class="btn-sub-text">Episode Downloader</span>
+            <span class="btn-label-text">{ep['name']}</span>
+        </a>"""
+
+    html_code = f"""<!-- TV SHOW POST START -->
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    .series-container {{
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #e2e8f0;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 10px;
+    }}
+    .poster-wrapper {{
+        text-align: center;
+        margin-bottom: 30px;
+    }}
+    .poster-img {{
+        max-width: 320px;
+        width: 100%;
+        height: auto;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6);
+        transition: transform 0.4s ease;
+    }}
+    .poster-img:hover {{
+        transform: scale(1.02);
+    }}
+    .info-card {{
+        background: rgba(17, 18, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 24px;
+        margin: 25px 0;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }}
+    .info-card h3 {{
+        margin-top: 0;
+        color: #38bdf8;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+    }}
+    .info-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+    }}
+    .info-item {{
+        font-size: 14px;
+        line-height: 1.5;
+    }}
+    .info-item strong {{
+        color: #94a3b8;
+    }}
+    .rating-badge {{
+        color: #fbbf24;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }}
+    .synopsis-section {{
+        margin: 25px 0;
+    }}
+    .synopsis-title {{
+        color: #f43f5e;
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-left: 4px solid #f43f5e;
+        padding-left: 12px;
+        margin-bottom: 12px;
+    }}
+    .synopsis-text {{
+        line-height: 1.7;
+        color: #94a3b8;
+        font-size: 15px;
+    }}
+    .guide-box {{
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        border-left: 5px solid #38bdf8;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 25px 0;
+    }}
+    .guide-title {{
+        color: #38bdf8;
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }}
+    .guide-text {{
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #cbd5e1;
+    }}
+    .download-area {{
+        background: #0f1015;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 30px 20px;
+        margin: 25px 0;
+    }}
+    .download-area h3 {{
+        color: #ffffff;
+        font-size: 18px;
+        font-weight: 800;
+        margin-top: 0;
+        margin-bottom: 24px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        text-align: center;
+    }}
+    .grid-container {{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 16px;
+    }}
+    .series-btn {{
+        background: rgba(17, 24, 39, 0.8);
+        border: 1.5px solid rgba(56, 189, 248, 0.3);
+        color: #ffffff;
+        border-radius: 14px;
+        padding: 16px 12px;
+        text-decoration: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        min-height: 75px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+    }}
+    .series-btn:hover {{
+        border-color: #38bdf8;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
+        background: rgba(56, 189, 248, 0.05);
+    }}
+    .btn-sub-text {{
+        font-size: 9px;
+        text-transform: uppercase;
+        color: #38bdf8;
+        font-weight: 800;
+        letter-spacing: 1px;
+    }}
+    .btn-label-text {{
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+    }}
+    @keyframes pulse-btn {{
+        0% {{ transform: scale(1); }}
+        50% {{ transform: scale(1.03); }}
+        100% {{ transform: scale(1); }}
+    }}
+    .btn-clicked {{
+        animation: pulse-btn 1.5s infinite;
+    }}
+</style>
+
+<div class="series-container">
+    <div class="poster-wrapper">
+        <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
+        <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
+    </div>
+
+    <div class="info-text" style="display: none;">
+        <div>Rating: {data['rating']}</div>
+        <div>Language: {data['lang']}</div>
+        <div>Genres: {data['genres']}</div>
+    </div>
+
+    <div class="info-card">
+        <h3>Series Information</h3>
+        <div class="info-grid">
+            <div class="info-item"><strong>Title:</strong> {data['title']}</div>
+            <div class="info-item"><strong>IMDb Rating:</strong> <span class="rating-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle;"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>{data['rating']}</span></div>
+            <div class="info-item"><strong>Language:</strong> {data['lang']}</div>
+            <div class="info-item"><strong>Genres:</strong> {data['genres']}</div>
+            <div class="info-item"><strong>Season:</strong> {season}</div>
+        </div>
+    </div>
+
+    <div class="synopsis-section">
+        <div class="synopsis-title">Synopsis / Storyline</div>
+        <div class="synopsis-text">{data['plot']}</div>
+    </div>
+
+    <div class="guide-box">
+        <div class="guide-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            ডাউনলোড করার সঠিক নিয়ম:
+        </div>
+        <p class="guide-text">
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+        </p>
+    </div>
+
+    <div class="download-area">
+        <h3>📥 Episode List (Season {season})</h3>
+        <div class="grid-container">
+            {episode_buttons_html}
+        </div>
+    </div>
+</div>
+
+<script>
+document.querySelectorAll('.download-btn').forEach(function(element) {{
+    element.addEventListener('click', function(e) {{
+        var adLink = this.getAttribute('data-ad');
+        
+        if (!adLink || adLink === 'None' || adLink === '') {{
+            return; 
+        }}
+        
+        if (this.getAttribute('data-clicked') !== 'true') {{
+            e.preventDefault(); 
+            window.open(adLink, '_blank');
+            this.setAttribute('data-clicked', 'true');
+            this.classList.add('btn-clicked');
+            
+            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            this.style.borderColor = '#10b981';
+            this.style.color = '#ffffff';
+            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
+            
+            var subText = this.querySelector('.btn-sub-text');
+            var mainText = this.querySelector('.btn-label-text');
+            if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
+            if (mainText) mainText.innerHTML = 'Click Again';
+        }}
+    }});
+}});
+</script>
+<!-- TV SHOW POST END -->"""
+
+    await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
+    user_states[chat_id] = {}
+
+
+# ==================== ব্যাকগ্রাউন্ড স্ক্র্যাপার ও অটো-পোস্ট লজিক ====================
+
+def extract_info_from_blog(content):
+    if not content:
+        return {'rating': 'N/A', 'genres': 'Movie/Series', 'lang': 'N/A'}
+    
+    text = re.sub(r'<[^>]+>', ' ', content)
+    
+    # HTML মেটা ক্লাস এবং সাধারণ রিলিজ ফরম্যাট রিড করার জন্য রেগুলার এক্সপ্রেশন
+    rating_match = re.search(r'(?:Rating|IMDb Rating|IMDB):\s*([\d\./]+|N/A)', text, re.I)
+    lang_match = re.search(r'Language:\s*([^📅🎭⏱\n|]+)', text, re.I)
+    genres_match = re.search(r'Genres:\s*([^📅🎭⏱\n|]+)', text, re.I)
+    
+    return {
+        'rating': rating_match.group(1).strip() if rating_match else "N/A",
+        'lang': lang_match.group(1).strip() if lang_match else "N/A",
+        'genres': genres_match.group(1).strip() if genres_match else "Movie/Series"
+    }
+
+def extract_poster_from_blog(content):
+    if not content:
+        return None
+    img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.I)
+    if img_match:
+        return img_match.group(1)
+    return None
+
+async def monitor_feeds():
+    while True:
+        try:
+            configs = system_db.get('autopost_configs', {})
+            if not configs:
+                await asyncio.sleep(45)
+                continue
+                
+            headers = {"User-Agent": "Mozilla/5.0"}
+            async with aiohttp.ClientSession(headers=headers) as session:
+                for user_id, config in list(configs.items()):
+                    try:
+                        f_url = config.get("feed")
+                        l_id = config.get("last_post_id")
+                        target_chat = config.get("channel")
+                        tutorial = config.get("tutorial")
+                        
+                        if not f_url or not target_chat:
+                            continue
+
+                        async with session.get(f_url, timeout=15) as resp:
+                            if resp.status != 200: 
+                                continue
+                            xml_data = await resp.text()
+                            root = ET.fromstring(xml_data)
+                            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+                            entries = root.findall('atom:entry', ns)
+                            if not entries: 
+                                continue
+                            
+                            latest = entries[0]
+                            p_id = latest.find('atom:id', ns).text
+                            if p_id != l_id:
+                                # নতুন পোস্ট ডিটেক্ট করা হয়েছে
+                                raw_title = latest.find('atom:title', ns).text
+                                # এক্সট্রা পাইপ (|) বা ড্যাশ (-) ক্লিন করা
+                                title = raw_title.split('|')[0].split('-')[0].strip()
+                                link = latest.find('atom:link[@rel="alternate"]', ns).attrib['href']
+                                
+                                content_elem = latest.find('atom:content', ns)
+                                content = content_elem.text or "" if content_elem is not None else ""
+                                
+                                info = extract_info_from_blog(content)
+                                poster = extract_poster_from_blog(content)
+                                
+                                # আপনার রিকোয়েস্ট করা সুন্দর ও নিখুঁত পোস্ট ক্যাপশন লেআউট
+                                caption = (
+                                    f"🎬 <b>NEW UPDATE: {title}</b>\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                    f"⭐️ <b>Rating:</b> {info['rating']}\n"
+                                    f"🗣 <b>Language:</b> {info['lang']}\n"
+                                    f"🎭 <b>Genres:</b> {info['genres']}\n\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"📥 <b>ডাউনলোড করতে নিচের লিংকে ক্লিক করুন 👇</b>"
+                                )
+                                
+                                btns = [[InlineKeyboardButton("🔗 Watch & Download Now", url=link)]]
+                                if tutorial and tutorial != 'Not Set ❌' and tutorial.startswith("http"):
+                                    btns.append([InlineKeyboardButton("📽️ How to Download", url=tutorial)])
+
+                                try:
+                                    if poster: 
+                                        await app.send_photo(target_chat, poster, caption=caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
+                                    else: 
+                                        await app.send_message(target_chat, caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
+                                    
+                                    # ডাটাবেজ আপডেট
+                                    system_db['autopost_configs'][user_id]['last_post_id'] = p_id
+                                    save_system_db()
+                                except Exception as e:
+                                    print(f"Auto-post error to channel {target_chat} for user {user_id}: {e}")
+                    except Exception as e:
+                        print(f"Error checking feed of user {user_id}: {e}")
+                        continue
+        except Exception as e:
+            print(f"General monitor loop error: {e}")
+        await asyncio.sleep(45) # ৪৫ সেকেন্ড পরপর চেক করবে
+
+
+# ==================== মূল এক্সেকিউশন ====================
 
 if __name__ == '__main__':
+    # Flask Web Server রান করা
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     web_thread.start()
     
+    # পাইরোগ্রাম সচল করে অটো পিয়ার ক্যাশিং হ্যাক চালু করা
     async def main():
         global http_session
         print("Starting Pyrogram Bot Client...")
         await app.start()
+        
+        # গ্লোবাল এসিঙ্ক্রোনাস এইচটিটিপি সেশন সচল করা
         http_session = aiohttp.ClientSession()
-        print("System Online & Connected!")
+        
+        # স্বয়ংক্রিয় পিয়ার রিজলভার হ্যাক ট্রিগার
+        try:
+            print("Resolving and caching Database Channel Peer...")
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
+                res = await resp.json()
+            if res.get('ok'):
+                print(" Database Channel Peer resolved and cached successfully!")
+                del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+                await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
+        except Exception as e:
+            print(f"⚠️ Error resolving database channel peer: {e}")
+            
+        # ব্যাকগ্রাউন্ডে অটো-পোস্ট মনিটর চালু করা
+        print("Starting Background Auto-Post Feed Monitor...")
+        asyncio.create_task(monitor_feeds())
+            
+        print("Bot is successfully running and listening for requests...")
         await idle()
+        
+        # সেশন বন্ধ করা হচ্ছে
         if http_session:
             await http_session.close()
         await app.stop()
 
+    # asyncio ইভেন্ট লুপের মাধ্যমে রান করা হচ্ছে
     asyncio.get_event_loop().run_until_complete(main())
