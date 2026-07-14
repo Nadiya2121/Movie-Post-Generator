@@ -135,7 +135,7 @@ def join_bot(payload):
         // সরাসরি অ্যাপ ওপেন করার চেষ্টা করবে
         window.location.href = "{tg_app_url}";
         
-        // অ্যাপ ওপেন না হলে ১.৫ সেকেন্ড পর ব্রাউজারের অল্টারনেটিভ ডোমেনে নিয়ে যাবে
+        // অ্যাপ ওপেন না হলে ১.৫ সেকেন্ড পর ব্রাউজারের অল্টারনেティブ ডোমেনে নিয়ে যাবে
         setTimeout(function() {{
             window.location.replace("{tg_web_url}");
         }}, 1500);
@@ -773,7 +773,7 @@ async def view_user_setup(client, message):
     
     if not configs:
         await message.reply_text("❌ আপনার কোনো অটো-পোস্ট সেটআপ পাওয়া যায়নি। শুরু করতে কম্যান্ডগুলো ব্যবহার করুন:\n\n"
-                                 "১. ওয়েবসাইট: `/set_website <লিঙ্ক>`\n"
+                                 "১. ওয়েবসাইট: `/set_website <লিঙ্কর>`\n"
                                  "২. চ্যানেল আইডি: `/set_channel <আইডি>`\n"
                                  "৩. টিউটোরিয়াল (ঐচ্ছিক): `/set_tutorial <লিঙ্ক>`")
         return
@@ -945,7 +945,7 @@ async def handle_all_messages(client, message):
 
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
-        await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+        await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, دয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
         poster_url = await upload_image_to_cloud(photo_id)
         
@@ -956,7 +956,7 @@ async def handle_all_messages(client, message):
         else:
             await client.send_message(chat_id, "❌ পোস্টার আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান:")
 
-    # ম্যানুয়াল স্লাইডার ব্যানার রিসিভার
+    # --- ম্যানুয়াল স্লাইডার ব্যানার রিসিভার ---
     elif state == 'waiting_for_manual_backdrop' and message.photo:
         await client.send_message(chat_id, "⏳ ব্যানার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
@@ -1400,9 +1400,9 @@ async def generate_movie_html_output(client, chat_id):
             ডাউনলোড করার সঠিক নিয়ম:
         </div>
         <p class="guide-text">
-            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি...
-            ২. সেটি ব্যাকগ্রাউন্ডে...
-            ৩. এবার বাটনে...
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
         </p>
     </div>
 
@@ -1446,9 +1446,9 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
 </script>
 <!-- MOVIE POST END -->"""
 
-    await client.send_message(chat_id, "🎉 **আপপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, "🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
     user_states[chat_id] = {}
 
 
@@ -1678,9 +1678,9 @@ async def generate_series_html_output(client, chat_id):
             ডাউনলোড করার সঠিক নিয়ম:
         </div>
         <p class="guide-text">
-            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
-            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
-            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+            ১. دانلود বাটনে প্রথমবার ক্লিক করলে একটি...
+            ২. সেটি ব্যাকগ্রাউন্ডে...
+            ৩. এবার বাটনে...
         </p>
     </div>
 
