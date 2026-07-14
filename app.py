@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import html # এইচটিএমএল ট্যাগ সুরক্ষিতভাবে পার্স করার জন্য
 import urllib.parse
 import aiohttp # সম্পূর্ণ এসিঙ্ক্রোনাস এপিআই হ্যান্ডেল করার জন্য
-from flask import Flask
+from flask import Flask, redirect, request
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ParseMode # অফিশিয়াল এনাম পার্স মোড
@@ -37,6 +37,44 @@ temp_codes = {}
 @web_app.route('/')
 def home():
     return "Async Pyrogram Movie Generator Bot is active!"
+
+# --- ডাইনামিক বিজ্ঞাপন রিডাইরেক্টর (Real-time CPM & Owner Share Router) ---
+@web_app.route('/redirect/<user_id>')
+def ad_redirect(user_id):
+    owner_share = system_db.get('owner_share', 20)
+    owner_ads = system_db.get('owner_ads', [])
+    user_ads = system_db.get('user_ads', {}).get(str(user_id), [])
+    
+    selected_ad = ""
+    
+    # ২০% সম্ভাবনায় ওনারের বিজ্ঞাপন ওপেন হবে (যদি ওনারের লিংক সেট করা থাকে)
+    if random.randint(1, 100) <= owner_share and owner_ads:
+        selected_ad = random.choice(owner_ads)
+        print(f"Routing to Owner Ad (Share: {owner_share}%)")
+    # নতুবা ইউজারের রোটেশন লিস্ট থেকে র্যান্ডমলি একটি ওপেন হবে
+    elif user_ads:
+        selected_ad = random.choice(user_ads)
+        print(f"Routing to User ({user_id}) Ad")
+    # ইউজারের কোনো লিংক না থাকলে ডিফল্ট ওনার লিংক ওপেন হবে
+    elif owner_ads:
+        selected_ad = random.choice(owner_ads)
+    else:
+        selected_ad = OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else "https://google.com"
+        
+    # মেটা রিফ্রেশ স্ক্রিপ্টের মাধ্যমে রিডাইরেক্ট
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Redirecting...</title>
+    <script type="text/javascript">
+        window.location.replace("{selected_ad}");
+    </script>
+</head>
+<body style="background-color: #08090c; color: #f1f5f9; font-family: sans-serif; text-align: center; padding-top: 100px;">
+    <div style="font-size: 18px; font-weight: 600;">Connecting to Secure Server, Please Wait...</div>
+</body>
+</html>"""
 
 # --- প্রফেশনাল কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
 @web_app.route('/code/<code_id>')
@@ -262,7 +300,7 @@ if MONGO_URI:
 # --- উন্নত ও সুরক্ষিত ডাটাবেজ ফাংশনসমূহ ---
 def load_system_db():
     default_structure = {
-        'owner_ads': ['https://www.highrateprofit.com/default-owner-key'],
+        'owner_ads': ['https://omg10.com/4/11047054'],
         'owner_share': 20, 
         'user_ads': {},
         'autopost_configs': {}
@@ -474,19 +512,6 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
         except Exception:
             pass
 
-def get_button_ad_link(chat_id):
-    owner_share = system_db.get('owner_share', 20)
-    owner_ads = system_db.get('owner_ads', [])
-    user_ads = system_db.get('user_ads', {}).get(str(chat_id), [])
-
-    if random.randint(1, 100) <= owner_share and owner_ads:
-        return random.choice(owner_ads)
-    if user_ads:
-        return random.choice(user_ads)
-    if owner_ads:
-        return random.choice(owner_ads)
-    return OWNER_DIRECT_LINK if OWNER_DIRECT_LINK else ""
-
 async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
@@ -515,7 +540,7 @@ async def set_user_ad(client, message):
         
     system_db['user_ads'][str(chat_id)] = links
     save_system_db()
-    await message.reply_text(f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে।")
+    await message.reply_text(f"🎉 **অভিনন্দন!** আপনার মোট {len(links)} টি ডাইরেক্ট লিঙ্ক সফলভাবে রোটেশন ডাটাবেজে সেভ হয়েছে। এগুলি ক্লিকে ক্লিকে রোটেট হবে।")
 
 @app.on_message(filters.command("my_ad") & filters.private)
 async def my_ad_stats(client, message):
@@ -553,14 +578,22 @@ async def add_owner_ad(client, message):
     if chat_id != OWNER_ID:
         return
         
-    link = message.text.replace("/add_owner_ad", "").strip()
-    if not link.startswith("http"):
-        await message.reply_text("⚠️ অনুগ্রহ করে একটি ভ্যালিড ডাইরেক্ট লিঙ্ক দিন।")
+    text = message.text.replace("/add_owner_ad", "").strip()
+    if not text:
+        await message.reply_text("⚠️ অনুগ্রহ করে এক বা একাধিক ডাইরেক্ট লিঙ্ক কমা দিয়ে আলাদা করে দিন।")
         return
         
-    system_db['owner_ads'].append(link)
+    links = [l.strip() for l in text.split(",") if l.strip().startswith("http")]
+    if not links:
+        await message.reply_text("⚠️ কোনো ভ্যালিড লিঙ্ক পাওয়া যায়নি।")
+        return
+        
+    if 'owner_ads' not in system_db:
+        system_db['owner_ads'] = []
+        
+    system_db['owner_ads'].extend(links)
     save_system_db()
-    await message.reply_text(f"✅ ওনারের রোটেশন ডাটাবেজে নতুন ডাইরেক্ট লিঙ্ক সফলভাবে যুক্ত হয়েছে।")
+    await message.reply_text(f"✅ ওনারের রোটেশন ডাটাবেজে {len(links)} টি নতুন ডাইরেক্ট লিঙ্ক সফলভাবে যুক্ত হয়েছে।")
 
 @app.on_message(filters.command("del_owner_ad") & filters.private)
 async def del_owner_ad(client, message):
@@ -569,7 +602,7 @@ async def del_owner_ad(client, message):
         return
         
     link = message.text.replace("/del_owner_ad", "").strip()
-    if link in system_db['owner_ads']:
+    if link in system_db.get('owner_ads', []):
         system_db['owner_ads'].remove(link)
         save_system_db()
         await message.reply_text(f"✅ ওনারের রোটেশন ডাটাবেজ থেকে লিঙ্কটি মুছে ফেলা হয়েছে।")
@@ -712,7 +745,7 @@ async def handle_start(client, message):
     user_states[chat_id] = {}
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie"),
-         InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")]
+         InlineKeyboardButton("📺 ওয়ান সিরিজ পোস্ট", callback_data="type_series")]
     ])
     
     await client.send_message(chat_id, 
@@ -787,7 +820,7 @@ async def save_lang_and_proceed(client, chat_id, language):
             await client.send_message(chat_id, f"✅ ভাষা সেভ হয়েছে: **{language}**\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
 
 
-# ==================== মেসেজ প্রসেসিং এরিয়া ====================
+# ====================  প্রসেসিং এরিয়া ====================
 
 @app.on_message(filters.private)
 async def handle_all_messages(client, message):
@@ -928,7 +961,7 @@ async def handle_all_messages(client, message):
                 user_states[chat_id]['temp_message_id'] = message.id
                 
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
-                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
+                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে abdomin-এর জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
                                           "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
             else:
                 await client.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
@@ -1032,7 +1065,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# ১. মুভি কোড জেনারেটর
+# ১. মুভি কোড জেনারেটর (ডাইনামিক রিডাইরেক্ট ইউআরএল সহ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -1043,15 +1076,14 @@ async def generate_movie_html_output(client, chat_id):
     link_720 = f"https://t.me/{BOT_USERNAME}?start={key_720}" if key_720 else ""
     link_1080 = f"https://t.me/{BOT_USERNAME}?start={key_1080}" if key_1080 else ""
 
-    ad_480 = get_button_ad_link(chat_id)
-    ad_720 = get_button_ad_link(chat_id)
-    ad_1080 = get_button_ad_link(chat_id)
+    app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
+    # সরাসরি বিজ্ঞাপনের বদলে ফ্লাস্ক রিডাইরেক্ট লিঙ্ক ব্যবহার করা হচ্ছে (ডাইনামিক রোটেশনের জন্য)
+    redirect_url = f"{app_url}/redirect/{chat_id}"
 
-    # বাটন স্টাইলিং ও মার্কআপ
     btn_480_html = ""
     if link_480:
         btn_480_html = f'''
-        <a href="{link_480}" data-ad="{ad_480}" class="download-btn btn-sd">
+        <a href="{link_480}" data-ad="{redirect_url}" class="download-btn btn-sd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 480p (SD)</span>
         </a>'''
@@ -1059,7 +1091,7 @@ async def generate_movie_html_output(client, chat_id):
     btn_720_html = ""
     if link_720:
         btn_720_html = f'''
-        <a href="{link_720}" data-ad="{ad_720}" class="download-btn btn-hd">
+        <a href="{link_720}" data-ad="{redirect_url}" class="download-btn btn-hd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 720p (HD)</span>
         </a>'''
@@ -1067,7 +1099,7 @@ async def generate_movie_html_output(client, chat_id):
     btn_1080_html = ""
     if link_1080:
         btn_1080_html = f'''
-        <a href="{link_1080}" data-ad="{ad_1080}" class="download-btn btn-fhd">
+        <a href="{link_1080}" data-ad="{redirect_url}" class="download-btn btn-fhd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 1080p (FullHD)</span>
         </a>'''
@@ -1260,7 +1292,6 @@ async def generate_movie_html_output(client, chat_id):
         <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
     </div>
 
-    <!-- মেটা ডেটা (সার্চ ক্রলার ও ফিল্টারের জন্য সংরক্ষিত) -->
     <div class="info-text" style="display: none;">
         <div>Rating: {data['rating']}</div>
         <div>Language: {data['lang']}</div>
@@ -1307,6 +1338,7 @@ async def generate_movie_html_output(client, chat_id):
 <script>
 document.querySelectorAll('.download-btn').forEach(function(element) {{
     element.addEventListener('click', function(e) {{
+        // ডাইনামিক রিডাইরেক্টর ইউআরএল প্রতি ক্লিকে ভিন্ন বিজ্ঞাপন লোড করাবে
         var adLink = this.getAttribute('data-ad');
         
         if (!adLink || adLink === 'None' || adLink === '') {{
@@ -1340,19 +1372,21 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
     user_states[chat_id] = {}
 
 
-# ২. ওয়েব সিরিজ কোড জেনারেটর
+# ২. ওয়েব সিরিজ কোড জেনারেটর (ডাইনামিক রিডাইরেক্ট ইউআরএল সহ)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
     episodes = user_states[chat_id]['episodes']
 
+    app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
+    redirect_url = f"{app_url}/redirect/{chat_id}"
+
     episode_buttons_html = ""
     for ep in episodes:
         link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
-        ad_link = get_button_ad_link(chat_id)
         
         episode_buttons_html += f"""
-        <a href="{link}" data-ad="{ad_link}" class="download-btn series-btn">
+        <a href="{link}" data-ad="{redirect_url}" class="download-btn series-btn">
             <span class="btn-sub-text">Episode Downloader</span>
             <span class="btn-label-text">{ep['name']}</span>
         </a>"""
@@ -1711,7 +1745,7 @@ async def monitor_feeds():
                         continue
         except Exception as e:
             print(f"General monitor loop error: {e}")
-        await asyncio.sleep(45) # ৪৫ সেকেন্ড পরপর চেক করবে
+        await asyncio.sleep(45)
 
 
 # ==================== মূল এক্সেকিউশন ====================
