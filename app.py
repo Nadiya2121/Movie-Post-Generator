@@ -36,7 +36,7 @@ temp_codes = {}
 
 @web_app.route('/')
 def home():
-    return "Ultra-Fast Async Pyrogram Movie Generator Bot is alive!"
+    return "Async Pyrogram Movie Generator Bot is active!"
 
 # --- প্রফেশনাল কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
 @web_app.route('/code/<code_id>')
@@ -259,34 +259,41 @@ if MONGO_URI:
         print(f"MongoDB Connection Failed: {e}. Falling back to Local Database.")
         db_mongo = None
 
+# --- উন্নত ও সুরক্ষিত ডাটাবেজ ফাংশনসমূহ ---
 def load_system_db():
-    if db_mongo is not None:
-        try:
-            config = db_mongo['system_config'].find_one({'_id': 'settings'})
-            if config:
-                return {
-                    'owner_ads': config.get('owner_ads', []),
-                    'owner_share': config.get('owner_share', 20),
-                    'user_ads': config.get('user_ads', {}),
-                    'autopost_configs': config.get('autopost_configs', {})
-                }
-        except Exception:
-            pass
-            
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    default_structure = {
         'owner_ads': ['https://www.highrateprofit.com/default-owner-key'],
         'owner_share': 20, 
         'user_ads': {},
         'autopost_configs': {}
     }
-
-system_db = load_system_db()
+    
+    if db_mongo is not None:
+        try:
+            config = db_mongo['system_config'].find_one({'_id': 'settings'})
+            if config:
+                print("✅ MongoDB থেকে সফলভাবে ডাটা লোড করা হয়েছে।")
+                return {
+                    'owner_ads': config.get('owner_ads', default_structure['owner_ads']),
+                    'owner_share': config.get('owner_share', default_structure['owner_share']),
+                    'user_ads': config.get('user_ads', default_structure['user_ads']),
+                    'autopost_configs': config.get('autopost_configs', default_structure['autopost_configs'])
+                }
+            else:
+                print("ℹ️ MongoDB-তে কোনো সেটিংস পাওয়া যায়নি। ডিফল্ট ডাটা স্ট্রাকচার তৈরি করা হচ্ছে।")
+                return default_structure
+        except Exception as e:
+            print(f"❌ MongoDB থেকে ডাটা লোড করতে ত্রুটি ঘটেছে: {e}")
+            
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
+                print("✅ লোককাল JSON ফাইল থেকে ডাটা লোড করা হয়েছে।")
+                return json.load(f)
+        except Exception as e:
+            print(f"❌ লোকাল JSON ফাইল লোড করতে ত্রুটি ঘটেছে: {e}")
+            
+    return default_structure
 
 def save_system_db():
     if db_mongo is not None:
@@ -294,22 +301,26 @@ def save_system_db():
             db_mongo['system_config'].update_one(
                 {'_id': 'settings'},
                 {'$set': {
-                    'owner_ads': system_db['owner_ads'],
-                    'owner_share': system_db['owner_share'],
-                    'user_ads': system_db['user_ads'],
+                    'owner_ads': system_db.get('owner_ads', []),
+                    'owner_share': system_db.get('owner_share', 20),
+                    'user_ads': system_db.get('user_ads', {}),
                     'autopost_configs': system_db.get('autopost_configs', {})
                 }},
                 upsert=True
             )
+            print("💾 ডাটা সফলভাবে MongoDB-তে সেভ করা হয়েছে।")
             return
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"❌ MongoDB-তে ডাটা সেভ করতে ব্যর্থ হয়েছে: {e}")
             
     try:
         with open(DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(system_db, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
+        print("💾 ডাটা লোকাল JSON ফাইলে সেভ করা হয়েছে।")
+    except Exception as e:
+        print(f"❌ লোকাল ফাইলে ডাটা সেভ করতে ব্যর্থ হয়েছে: {e}")
+
+system_db = load_system_db()
 
 async def upload_image_to_cloud(file_id):
     global http_session
@@ -365,7 +376,7 @@ async def upload_image_to_cloud(file_id):
     return None
 
 
-# --- ডাইনামিক ও প্রিমিয়াম ক্যাপশন জেনারেটর ---
+# --- ডাইনামিক ক্যাপশন জেনারেটর ---
 def generate_premium_caption(chat_id, quality=None, episode_name=None):
     data = user_states[chat_id].get('movie_data', {})
     title = data.get('title', 'Unknown')
@@ -395,7 +406,7 @@ def generate_premium_caption(chat_id, quality=None, episode_name=None):
     return caption
 
 
-# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার (HTML ক্যাপশন সম্বলিত)
+# এসিঙ্ক্রোনাস ডাটাবেজ চ্যানেল আপলোডার
 async def save_file_to_db_channel(from_chat_id, message_id, file_type, file_id, caption=""):
     global http_session
     if not http_session:
@@ -815,7 +826,6 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_genres' and message.text:
         user_states[chat_id]['movie_data']['genres'] = message.text.strip()
-        user_states[chat_id]['step'] = 'waiting_for_manual_genres'
         user_states[chat_id]['step'] = 'waiting_for_manual_poster'
         await client.send_message(chat_id, "📸 এবার মুভির **পোর্ট্রেট পোস্টার (Portrait Poster Photo)** টি সরাসরি ইমেজ হিসেবে পাঠান:")
 
@@ -1022,7 +1032,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# ১. মুভি কোড জেনারেটর (উন্নত ডাবল-ক্লিক এনিমেশন সহ)
+# ১. মুভি কোড জেনারেটর
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -1037,7 +1047,7 @@ async def generate_movie_html_output(client, chat_id):
     ad_720 = get_button_ad_link(chat_id)
     ad_1080 = get_button_ad_link(chat_id)
 
-    # প্রিমিয়াম বাটন স্টাইলিং ও মার্কআপ
+    # বাটন স্টাইলিং ও মার্কআপ
     btn_480_html = ""
     if link_480:
         btn_480_html = f'''
@@ -1330,7 +1340,7 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
     user_states[chat_id] = {}
 
 
-# ২. ওয়েব সিরিজ কোড জেনারেটর (গ্রিড-কার্ড এবং প্রিমিয়াম বাটন ট্রানজিশন সহ)
+# ২. ওয়েব সিরিজ কোড জেনারেটর
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -1611,7 +1621,6 @@ def extract_info_from_blog(content):
     
     text = re.sub(r'<[^>]+>', ' ', content)
     
-    # HTML মেটা ক্লাস এবং সাধারণ রিলিজ ফরম্যাট রিড করার জন্য রেগুলার এক্সপ্রেশন
     rating_match = re.search(r'(?:Rating|IMDb Rating|IMDB):\s*([\d\./]+|N/A)', text, re.I)
     lang_match = re.search(r'Language:\s*([^📅🎭⏱\n|]+)', text, re.I)
     genres_match = re.search(r'Genres:\s*([^📅🎭⏱\n|]+)', text, re.I)
@@ -1663,9 +1672,7 @@ async def monitor_feeds():
                             latest = entries[0]
                             p_id = latest.find('atom:id', ns).text
                             if p_id != l_id:
-                                # নতুন পোস্ট ডিটেক্ট করা হয়েছে
                                 raw_title = latest.find('atom:title', ns).text
-                                # এক্সট্রা পাইপ (|) বা ড্যাশ (-) ক্লিন করা
                                 title = raw_title.split('|')[0].split('-')[0].strip()
                                 link = latest.find('atom:link[@rel="alternate"]', ns).attrib['href']
                                 
@@ -1675,7 +1682,6 @@ async def monitor_feeds():
                                 info = extract_info_from_blog(content)
                                 poster = extract_poster_from_blog(content)
                                 
-                                # আপনার রিকোয়েস্ট করা সুন্দর ও নিখুঁত পোস্ট ক্যাপশন লেআউট
                                 caption = (
                                     f"🎬 <b>NEW UPDATE: {title}</b>\n"
                                     f"━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1696,7 +1702,6 @@ async def monitor_feeds():
                                     else: 
                                         await app.send_message(target_chat, caption, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(btns))
                                     
-                                    # ডাটাবেজ আপডেট
                                     system_db['autopost_configs'][user_id]['last_post_id'] = p_id
                                     save_system_db()
                                 except Exception as e:
@@ -1733,7 +1738,7 @@ if __name__ == '__main__':
             async with http_session.post(url, json={"chat_id": DATABASE_CHANNEL_ID, "text": "♻️ System Online & Connected!"}, timeout=10) as resp:
                 res = await resp.json()
             if res.get('ok'):
-                print(" Database Channel Peer resolved and cached successfully!")
+                print("Database Channel Peer resolved and cached successfully!")
                 del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
                 await http_session.post(del_url, json={"chat_id": DATABASE_CHANNEL_ID, "message_id": res['result']['message_id']}, timeout=10)
         except Exception as e:
