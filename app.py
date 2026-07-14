@@ -857,7 +857,15 @@ async def handle_query(client, callback_query):
 
     elif data == "mode_auto":
         user_states[chat_id]['step'] = 'waiting_for_search'
-        await callback_query.edit_message_text("🔍 অনুগ্রহ করে নামটি ইংরেজিতে টাইপ করে পাঠান:")
+        await callback_query.edit_message_text(
+            "🔍 **অটো সার্চ অপশনটি সিলেক্ট করেছেন!**\n\n"
+            "আপনি নিচের যেকোনো উপায়ে তথ্য পাঠাতে পারেন:\n"
+            "১. মুভি বা সিরিজের ইংরেজি অথবা বাংলা নাম।\n"
+            "২. নাম এবং মুক্তি পাওয়ার সাল একসাথে (যেমন: `Avatar 2009` বা `অবতার ২০০৯`)।\n"
+            "৩. সরাসরি **IMDb লিঙ্ক** অথবা **IMDb ID** (যেমন: `tt0499549`)।\n"
+            "৪. সরাসরি **TMDB লিঙ্ক** (যেমন: `https://www.themoviedb.org/movie/19995`)।\n\n"
+            "অনুগ্রহ করে আপনার সার্চ কুয়েরি বা লিঙ্কটি লিখে পাঠান:"
+        )
         
     elif data == "mode_manual":
         user_states[chat_id]['step'] = 'waiting_for_manual_title'
@@ -945,7 +953,7 @@ async def handle_all_messages(client, message):
 
     # ম্যানুয়াল পোস্টার রিসিভার
     elif state == 'waiting_for_manual_poster' and message.photo:
-        await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, دয়া করে অপেক্ষা করুন...")
+        await client.send_message(chat_id, "⏳ পোস্টার আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
         photo_id = message.photo.file_id
         poster_url = await upload_image_to_cloud(photo_id)
         
@@ -1074,36 +1082,118 @@ async def handle_all_messages(client, message):
             else:
                 await client.send_message(chat_id, "❌ ফাইলটি ডাটাবেজ চ্যানেলে সেভ করা যায়নি!")
 
-# TMDB সার্চ কুয়েরি
+
+# TMDB মাল্টি-ফাংশনাল সার্চ কুয়েরি (বাংলা, ইংরেজি, সাল, এবং লিঙ্ক ডিটেকশন সিস্টেম)
 async def search_tmdb(client, chat_id, query, post_type):
     global http_session
     if not http_session:
         return
     
-    is_tv = "tv" if post_type == "series" else "movie"
-    url = f"https://api.themoviedb.org/3/search/{is_tv}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}"
-    
+    is_tv = post_type == "series"
+    endpoint = "tv" if is_tv else "movie"
+
+    # ১. IMDb আইডি অথবা সম্পূর্ণ লিঙ্ক যাচাইকরণ
+    imdb_match = re.search(r'(tt\d{7,10})', query)
+    if imdb_match:
+        imdb_id = imdb_match.group(1)
+        await client.send_message(chat_id, f"⏳ IMDb আইডি `{imdb_id}` দিয়ে ডেটা খোঁজ করা হচ্ছে...")
+        find_url = f"https://api.themoviedb.org/3/find/{imdb_id}?api_key={TMDB_API_KEY}&external_source=imdb_id"
+        try:
+            async with http_session.get(find_url, timeout=10) as resp:
+                find_res = await resp.json()
+            
+            movie_results = find_res.get('movie_results', [])
+            tv_results = find_res.get('tv_results', [])
+            
+            if movie_results and not is_tv:
+                await fetch_tmdb_details(client, chat_id, movie_results[0]['id'], False)
+                return
+            elif tv_results and is_tv:
+                await fetch_tmdb_details(client, chat_id, tv_results[0]['id'], True)
+                return
+            elif movie_results: # ক্যাটাগরি অমিল হলে ব্যাকআপ
+                await fetch_tmdb_details(client, chat_id, movie_results[0]['id'], False)
+                return
+            elif tv_results: # ক্যাটাগরি অমিল হলে ব্যাকআপ
+                await fetch_tmdb_details(client, chat_id, tv_results[0]['id'], True)
+                return
+            else:
+                await client.send_message(chat_id, "❌ প্রদত্ত IMDb আইডি দিয়ে TMDB-তে কোনো মুভি বা সিরিজ খুঁজে পাওয়া যায়নি।")
+                return
+        except Exception as e:
+            print(f"IMDb Find Error: {e}")
+            await client.send_message(chat_id, "❌ IMDb লিঙ্ক থেকে ডাটা সংগ্রহ করতে সমস্যা হয়েছে।")
+            return
+
+    # ২. TMDB সরাসরি লিঙ্ক যাচাইকরণ
+    tmdb_link_match = re.search(r'themoviedb\.org/(movie|tv)/(\d+)', query)
+    if tmdb_link_match:
+        tmdb_type = tmdb_link_match.group(1)
+        tmdb_id = tmdb_link_match.group(2)
+        is_tv_link = tmdb_type == "tv"
+        await client.send_message(chat_id, f"⏳ সরাসরি TMDB লিঙ্ক সনাক্ত করা হয়েছে। তথ্য লোড করা হচ্ছে...")
+        await fetch_tmdb_details(client, chat_id, tmdb_id, is_tv_link)
+        return
+
+    # ৩. বাংলা সংখ্যা এবং সাল প্রসেসিং ও নরমালাইজেশন
+    # বাংলা সংখ্যা লিখে সাল দিলে তা ইংরেজিতে রূপান্তর করে নেওয়া হবে (উদা: ২০০৯ -> 2009)
+    bangla_digits = "০১২৩৪৫৬৭৮৯"
+    english_digits = "0123456789"
+    translation_table = str.maketrans(bangla_digits, english_digits)
+    normalized_query = query.translate(translation_table)
+
+    # সাল খোঁজার জন্য রেগুলার এক্সপ্রেশন
+    year_match = re.search(r'\b(19\d\d|20\d\d)\b', normalized_query)
+    year = None
+    search_query = query
+
+    if year_match:
+        year = year_match.group(1)
+        # মূল কোয়েরি থেকে সালটি বাদ দিয়ে শুধু নামের টেক্সট রাখা হচ্ছে যাতে সার্চ ফলাফল নিখুঁত হয়
+        start, end = year_match.span()
+        search_query = query[:start] + query[end:]
+        search_query = re.sub(r'\s+', ' ', search_query).strip()
+
+    await client.send_message(chat_id, f"🔍 `{search_query}` অনুসন্ধান করা হচ্ছে...")
+
+    # TMDB সার্চ কুয়েরি তৈরি করা
+    url = f"https://api.themoviedb.org/3/search/{endpoint}?api_key={TMDB_API_KEY}&query={urllib.parse.quote(search_query)}"
+    if year:
+        if is_tv:
+            url += f"&first_air_date_year={year}"
+        else:
+            url += f"&year={year}"
+
     try:
         async with http_session.get(url, timeout=10) as resp:
             response = await resp.json()
         results = response.get('results', [])
         
+        # ৪. বাংলা টাইটেল সার্চ ব্যাকআপ মেকানিজম
+        # ইংরেজি কি-বোর্ডে না লিখে বাংলায় সার্চ করলে অনেক সময় সরাসরি ফলাফল আসে না, সেক্ষেত্রে স্পেসিফিক ল্যাঙ্গুয়েজ ট্রায়াল চালানো হয়
+        if not results and any(ord(c) > 127 for c in search_query):
+            url_bn = url + "&language=bn-BD"
+            async with http_session.get(url_bn, timeout=10) as resp_bn:
+                response_bn = await resp_bn.json()
+            results = response_bn.get('results', [])
+
         if results:
             markup_buttons = []
             for item in results[:5]:
-                title = item.get('title') if post_type == "movie" else item.get('name')
-                release_date = item.get('release_date') if post_type == "movie" else item.get('first_air_date')
-                year = release_date.split('-')[0] if release_date else 'N/A'
+                title = item.get('title') if not is_tv else item.get('name')
+                release_date = item.get('release_date') if not is_tv else item.get('first_air_date')
+                item_year = release_date.split('-')[0] if release_date else 'N/A'
                 
-                button_text = f"{title} ({year})"
-                markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{is_tv}")])
+                button_text = f"{title} ({item_year})"
+                markup_buttons.append([InlineKeyboardButton(button_text, callback_data=f"select_{item['id']}_{endpoint}")])
                 
             await client.send_message(chat_id, "🔍 অনুসন্ধানের ফলাফেলের তালিকা নিচে দেওয়া হলো, সঠিকটি সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(markup_buttons))
         else:
-            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ পাওয়া যায়নি! অনুগ্রহ করে ম্যানুয়াল এন্ট্রি অপশন ব্যবহার করুন।")
+            await client.send_message(chat_id, "❌ কোনো মুভি বা সিরিজ খুঁজে পাওয়া যায়নি! অনুগ্রহ করে নামটি চেক করুন অথবা ম্যানুয়াল পোস্ট অপশনটি ব্যবহার করুন।")
     except Exception as e:
         print(f"Async TMDB Search Error: {e}")
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
+
 
 # TMDB ডিটেইলস সংগ্রহ
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
@@ -1446,9 +1536,9 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
 </script>
 <!-- MOVIE POST END -->"""
 
-    await client.send_message(chat_id, "🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, f"🎉 **মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
+    await send_html_code(client, chat_id, html_code, filename=f"{safe_title}.html")
     user_states[chat_id] = {}
 
 
@@ -1678,9 +1768,9 @@ async def generate_series_html_output(client, chat_id):
             ডাউনলোড করার সঠিক নিয়ম:
         </div>
         <p class="guide-text">
-            ১. دانلود বাটনে প্রথমবার ক্লিক করলে একটি...
-            ২. সেটি ব্যাকগ্রাউন্ডে...
-            ৩. এবার বাটনে...
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
+            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
+            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
         </p>
     </div>
 
