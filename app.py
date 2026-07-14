@@ -36,7 +36,8 @@ temp_codes = {}
 
 @web_app.route('/')
 def home():
-    return "Async Pyrogram Movie Generator Bot is active!"
+    return "Async Pyrogram Movie Generator Bot is active with Bypass Routing!"
+
 
 # --- ডাইনামিক বিজ্ঞাপন রিডাইরেক্টর (Real-time CPM & Owner Share Router) ---
 @web_app.route('/redirect/<user_id>')
@@ -55,7 +56,6 @@ def ad_redirect(user_id):
     elif user_ads:
         selected_ad = random.choice(user_ads)
         print(f"Routing to User ({user_id}) Ad")
-    # ইউজারের কোনো লিংক না থাকলে ডিফল্ট ওনার লিংক ওপেন হবে
     elif owner_ads:
         selected_ad = random.choice(owner_ads)
     else:
@@ -66,7 +66,7 @@ def ad_redirect(user_id):
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Redirecting...</title>
+    <title>Redirecting to Sponsor...</title>
     <script type="text/javascript">
         window.location.replace("{selected_ad}");
     </script>
@@ -75,6 +75,80 @@ def ad_redirect(user_id):
     <div style="font-size: 18px; font-weight: 600;">Connecting to Secure Server, Please Wait...</div>
 </body>
 </html>"""
+
+
+# --- ডাইনামিক আইএসপি/ডোমেন блок বাইপাস গেটওয়ে (Smart Telegram App Linker) ---
+@web_app.route('/join/<payload>')
+def join_bot(payload):
+    bot_username = BOT_USERNAME
+    # সরাসরি টেলিগ্রাম অ্যাপের ইন্টারনাল প্রোটোকল ট্রিগার করবে (যা ব্রাউজার ও ডিএনএস ফিল্টার বাইপাস করে)
+    tg_app_url = f"tg://resolve?domain={bot_username}&start={payload}"
+    # ফলব্যাক ওয়েব লিংক
+    tg_web_url = f"https://telegram.me/{bot_username}?start={payload}"
+    
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opening Telegram App...</title>
+    <style>
+        body {{
+            background-color: #08090c;
+            color: #f1f5f9;
+            font-family: sans-serif;
+            text-align: center;
+            padding-top: 100px;
+            margin: 0;
+        }}
+        .loader {{
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border-left-color: #38bdf8;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        .btn {{
+            display: inline-block;
+            margin-top: 20px;
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 16px;
+            box-shadow: 0 4px 15 rgba(56, 189, 248, 0.25);
+            transition: transform 0.2s;
+        }}
+        .btn:active {{
+            transform: scale(0.98);
+        }}
+    </style>
+    <script type="text/javascript">
+        // সরাসরি অ্যাপ ওপেন করার চেষ্টা করবে
+        window.location.href = "{tg_app_url}";
+        
+        // অ্যাপ ওপেন না হলে ১.৫ সেকেন্ড পর ব্রাউজারের অল্টারনেটিভ ডোমেনে নিয়ে যাবে
+        setTimeout(function() {{
+            window.location.replace("{tg_web_url}");
+        }}, 1500);
+    </script>
+</head>
+<body>
+    <div class="loader"></div>
+    <div style="font-size: 20px; font-weight: 700;">Opening Telegram Bot...</div>
+    <p style="color: #64748b; font-size: 14px; margin-top: 12px; padding: 0 20px;">We are opening Telegram App securely to bypass local internet blocks.</p>
+    <a href="{tg_app_url}" class="btn">Open Manually</a>
+</body>
+</html>"""
+
 
 # --- প্রফেশনাল কোড ভিউ ও কপি করার ডায়নামিক ওয়েব রাউট ---
 @web_app.route('/code/<code_id>')
@@ -274,7 +348,7 @@ async def send_html_code(client, chat_id, html_code, filename="post_code.html"):
     
     await client.send_message(
         chat_id,
-        "🔗 **আপনার ব্লগার HTML কোডটি প্রস্তুত করা হয়েছে!**\n\n"
+        "🔗 **আপনার blogger HTML কোডটি প্রস্তুত করা হয়েছে!**\n\n"
         "নিচের বাটনে ক্লিক করে কোড পেইজে যান এবং সেখান থেকে এক ক্লিকে কোডটি কপি করে সরাসরি ব্লগারে বসিয়ে দিন।",
         reply_markup=markup
     )
@@ -326,7 +400,7 @@ def load_system_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, 'r', encoding='utf-8') as f:
-                print("✅ লোককাল JSON ফাইল থেকে ডাটা লোড করা হয়েছে।")
+                print("✅ লোকাল JSON ফাইল থেকে ডাটা লোড করা হয়েছে।")
                 return json.load(f)
         except Exception as e:
             print(f"❌ লোকাল JSON ফাইল লোড করতে ত্রুটি ঘটেছে: {e}")
@@ -745,7 +819,7 @@ async def handle_start(client, message):
     user_states[chat_id] = {}
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎬 মুভি পোস্ট", callback_data="type_movie"),
-         InlineKeyboardButton("📺 ওয়ান সিরিজ পোস্ট", callback_data="type_series")]
+         InlineKeyboardButton("📺 ওয়েব সিরিজ পোস্ট", callback_data="type_series")]
     ])
     
     await client.send_message(chat_id, 
@@ -961,7 +1035,7 @@ async def handle_all_messages(client, message):
                 user_states[chat_id]['temp_message_id'] = message.id
                 
                 user_states[chat_id]['step'] = 'waiting_for_ep_name'
-                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে abdomin-এর জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
+                await client.send_message(chat_id, "📝 **ফাইলটি রিসিভ হয়েছে!**\n\nপোস্টে প্রদর্শনের জন্য এই ফাইল বা এপিসোডের নামটি কি হবে টাইপ করে জানান?\n"
                                           "(উদা: Episode 1 / Episode 1-2 / Complete Zip Batch / Season 1 Batch)")
             else:
                 await client.send_message(chat_id, "⚠️ অনুগ্রহ করে শুধুমাত্র ওয়েব সিরিজের ডাউনলোড ফাইলটি ফরোয়ার্ড করুন।")
@@ -1065,20 +1139,20 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# ১. মুভি কোড জেনারেটর (ডাইনামিক রিডাইরেক্ট ইউআরএল সহ)
+# ১. মুভি কোড জেনারেটর (স্মার্ট জয়েন বাইপাস ইউআরএল সহ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
     key_720 = user_states[chat_id].get('dl_720_key', '')
     key_1080 = user_states[chat_id].get('dl_1080_key', '')
 
-    link_480 = f"https://t.me/{BOT_USERNAME}?start={key_480}" if key_480 else ""
-    link_720 = f"https://t.me/{BOT_USERNAME}?start={key_720}" if key_720 else ""
-    link_1080 = f"https://t.me/{BOT_USERNAME}?start={key_1080}" if key_1080 else ""
-
     app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
-    # সরাসরি বিজ্ঞাপনের বদলে ফ্লাস্ক রিডাইরেক্ট লিঙ্ক ব্যবহার করা হচ্ছে (ডাইনামিক রোটেশনের জন্য)
     redirect_url = f"{app_url}/redirect/{chat_id}"
+
+    # সরাসরি ডোমেন বাদ দিয়ে কোয়েব বাইপাস জয়েন গেটওয়ে লিঙ্ক বসানো হয়েছে
+    link_480 = f"{app_url}/join/{key_480}" if key_480 else ""
+    link_720 = f"{app_url}/join/{key_720}" if key_720 else ""
+    link_1080 = f"{app_url}/join/{key_1080}" if key_1080 else ""
 
     btn_480_html = ""
     if link_480:
@@ -1338,7 +1412,6 @@ async def generate_movie_html_output(client, chat_id):
 <script>
 document.querySelectorAll('.download-btn').forEach(function(element) {{
     element.addEventListener('click', function(e) {{
-        // ডাইনামিক রিডাইরেক্টর ইউআরএল প্রতি ক্লিকে ভিন্ন বিজ্ঞাপন লোড করাবে
         var adLink = this.getAttribute('data-ad');
         
         if (!adLink || adLink === 'None' || adLink === '') {{
@@ -1372,7 +1445,7 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
     user_states[chat_id] = {}
 
 
-# ২. ওয়েব সিরিজ কোড জেনারেটর (ডাইনামিক রিডাইরেক্ট ইউআরএল সহ)
+# ২. ওয়েব সিরিজ কোড জেনারেটর (স্মার্ট জয়েন বাইপাস ইউআরএল সহ)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -1383,7 +1456,8 @@ async def generate_series_html_output(client, chat_id):
 
     episode_buttons_html = ""
     for ep in episodes:
-        link = f"https://t.me/{BOT_USERNAME}?start={ep['key']}"
+        # সরাসরি ডোমেন বাদ দিয়ে কোয়েব বাইপাস জয়েন লিঙ্ক বসানো হয়েছে
+        link = f"{app_url}/join/{ep['key']}"
         
         episode_buttons_html += f"""
         <a href="{link}" data-ad="{redirect_url}" class="download-btn series-btn">
