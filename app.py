@@ -81,7 +81,7 @@ def ad_redirect(user_id):
 @web_app.route('/join/<payload>')
 def join_bot(payload):
     bot_username = BOT_USERNAME
-    # সরাসরি টেলিগ্রাম অ্যাপের ইন্টারনাল প্রোটোকল ট্রিগার করবে (যা ব্রাউজার ও ডিএনএস ফিল্টার বাইপাস করে)
+    # সরাসরি টেলিগ্রাম অ্যাপের ইন্টারনাল প্রোটোকল ট্রিগার করবে
     tg_app_url = f"tg://resolve?domain={bot_username}&start={payload}"
     # ফলব্যাক ওয়েব লিংক
     tg_web_url = f"https://telegram.me/{bot_username}?start={payload}"
@@ -603,11 +603,15 @@ async def set_user_ad(client, message):
     text = message.text.replace("/set_ad", "").strip()
     
     if not text:
-        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে কমা দিয়ে আপনার ডাইরেক্ট লিঙ্কগুলো পাঠান:\n"
-                                 "`/set_ad https://link1.com, https://link2.com`", parse_mode=ParseMode.MARKDOWN)
+        await message.reply_text("⚠️ **ভুল ফরম্যাট!**\n\nঅনুগ্রহ করে এভাবে কমা দিয়ে বা এন্টার (Newline) দিয়ে আপনার লিঙ্কগুলো পাঠান:\n"
+                                 "`/set_ad https://link1.com, https://link2.com`\n"
+                                 "অথবা এক লাইনে একটি করে লিঙ্ক লিখুন।")
         return
         
-    links = [l.strip() for l in text.split(",") if l.strip().startswith("http")]
+    # স্মার্ট রেগুলার এক্সপ্রেশন স্প্লিটার (কমা এবং নিউলাইন উভয়কেই আলাদা করবে)
+    raw_links = re.split(r'[,\n]+', text)
+    links = [l.strip() for l in raw_links if l.strip().startswith("http")]
+    
     if not links:
         await message.reply_text("❌ কোনো ভ্যালিড লিঙ্ক পাওয়া যায়নি! লিঙ্ক অবশ্যই `http` বা `https` দিয়ে শুরু হতে হবে।")
         return
@@ -654,10 +658,13 @@ async def add_owner_ad(client, message):
         
     text = message.text.replace("/add_owner_ad", "").strip()
     if not text:
-        await message.reply_text("⚠️ অনুগ্রহ করে এক বা একাধিক ডাইরেক্ট লিঙ্ক কমা দিয়ে আলাদা করে দিন।")
+        await message.reply_text("⚠️ অনুগ্রহ করে এক বা একাধিক ডাইরেক্ট লিঙ্ক কমা বা নিউলাইন দিয়ে আলাদা করে দিন।")
         return
         
-    links = [l.strip() for l in text.split(",") if l.strip().startswith("http")]
+    # স্মার্ট রেগুলার এক্সপ্রেশন স্প্লিটার (ওনারের বাল্ক আপলোডের জন্য)
+    raw_links = re.split(r'[,\n]+', text)
+    links = [l.strip() for l in raw_links if l.strip().startswith("http")]
+    
     if not links:
         await message.reply_text("⚠️ কোনো ভ্যালিড লিঙ্ক পাওয়া যায়নি।")
         return
@@ -1393,9 +1400,9 @@ async def generate_movie_html_output(client, chat_id):
             ডাউনলোড করার সঠিক নিয়ম:
         </div>
         <p class="guide-text">
-            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
-            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
-            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি...
+            ২. সেটি ব্যাকগ্রাউন্ডে...
+            ৩. এবার বাটনে...
         </p>
     </div>
 
@@ -1439,7 +1446,7 @@ document.querySelectorAll('.download-btn').forEach(function(element) {{
 </script>
 <!-- MOVIE POST END -->"""
 
-    await client.send_message(chat_id, "🎉 **আপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, "🎉 **আপপনার মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_post.html")
     user_states[chat_id] = {}
@@ -1580,7 +1587,7 @@ async def generate_series_html_output(client, chat_id):
     }}
     .download-area h3 {{
         color: #ffffff;
-        font-size: 18px;
+        font-size: 24px;
         font-weight: 800;
         margin-top: 0;
         margin-bottom: 24px;
