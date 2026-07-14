@@ -589,7 +589,7 @@ async def delete_messages_after_delay(chat_id, message_ids, delay):
 async def send_language_picker(client, chat_id, text="🗣 অনুগ্রহ করে মুভি/সিরিজের ভাষা (Language) সিলেক্ট করুন:"):
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_English"), InlineKeyboardButton("🇮🇳 Hindi", callback_data="lang_Hindi")],
-        [InlineKeyboardButton("🇧🇩 Bangla", callback_data="lang_Bangla"), InlineKeyboardButton("🎙 Dual Audio (Hin-Eng)", callback_data="lang_Dual Audio (Hindi-English)")],
+        [InlineKeyboardButton("🎙 Bangla", callback_data="lang_Bangla"), InlineKeyboardButton("🎙 Dual Audio (Hin-Eng)", callback_data="lang_Dual Audio (Hindi-English)")],
         [InlineKeyboardButton("🎙 Multi Audio", callback_data="lang_Multi Audio"), InlineKeyboardButton("✏️ কাস্টম টাইপ করুন", callback_data="lang_custom")]
     ])
     await client.send_message(chat_id, text, reply_markup=markup)
@@ -979,13 +979,36 @@ async def handle_all_messages(client, message):
 
     elif state == 'waiting_for_manual_plot' and message.text:
         user_states[chat_id]['movie_data']['plot'] = message.text.strip()
-        
-        if post_type == 'movie':
-            user_states[chat_id]['step'] = 'waiting_for_480p'
-            await client.send_message(chat_id, "✅ মুভি তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+        user_states[chat_id]['step'] = 'waiting_for_manual_screenshots'
+        await client.send_message(chat_id, "📸 এবার মুভির কয়েকটি স্ক্রিনশট বা একটি স্ক্রিনশট কোলাজ ছবি (Collage Photo) পাঠান (অথবা বাদ দিতে /skip লিখুন):")
+        return
+
+    # ম্যানুয়াল স্ক্রিনশট রিসিভার
+    elif state == 'waiting_for_manual_screenshots':
+        if message.photo:
+            await client.send_message(chat_id, "⏳ স্ক্রিনশট আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
+            photo_id = message.photo.file_id
+            scr_url = await upload_image_to_cloud(photo_id)
+            if scr_url:
+                user_states[chat_id]['movie_data']['screenshots'] = [scr_url]
+                if post_type == 'movie':
+                    user_states[chat_id]['step'] = 'waiting_for_480p'
+                    await client.send_message(chat_id, "✅ স্ক্রিনশট আপলোড সফল হয়েছে।\n\n👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+                else:
+                    user_states[chat_id]['step'] = 'waiting_for_season'
+                    await client.send_message(chat_id, "✅ স্ক্রিনশট আপলোড সফল হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+            else:
+                await client.send_message(chat_id, "❌ স্ক্রিনশট আপলোড ব্যর্থ হয়েছে। পুনরায় পাঠান অথবা বাদ দিতে /skip লিখুন:")
+        elif message.text and message.text.lower().strip() == '/skip':
+            user_states[chat_id]['movie_data']['screenshots'] = []
+            if post_type == 'movie':
+                user_states[chat_id]['step'] = 'waiting_for_480p'
+                await client.send_message(chat_id, "👉 এখন মুভির **480p (SD)** ফাইলটি ফরোয়ার্ড করুন (অথবা বাদ দিতে /skip লিখুন):")
+            else:
+                user_states[chat_id]['step'] = 'waiting_for_season'
+                await client.send_message(chat_id, "👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
         else:
-            user_states[chat_id]['step'] = 'waiting_for_season'
-            await client.send_message(chat_id, "✅ সিরিজ তথ্য সংগ্রহ সম্পূর্ণ হয়েছে।\n\n👉 এবার সিজন নাম্বারটি লিখে পাঠান (উদা: 1, 2, 3):")
+            await client.send_message(chat_id, "⚠️ অনুগ্রহ করে একটি ফটো পাঠান অথবা বাদ দিতে /skip লিখুন।")
         return
 
     # --- মুভির ফাইল ফরোয়ার্ড রিসিভার ---
@@ -1111,10 +1134,10 @@ async def search_tmdb(client, chat_id, query, post_type):
             elif tv_results and is_tv:
                 await fetch_tmdb_details(client, chat_id, tv_results[0]['id'], True)
                 return
-            elif movie_results: # ক্যাটাগরি অমিল হলে ব্যাকআপ
+            elif movie_results: 
                 await fetch_tmdb_details(client, chat_id, movie_results[0]['id'], False)
                 return
-            elif tv_results: # ক্যাটাগরি অমিল হলে ব্যাকআপ
+            elif tv_results: 
                 await fetch_tmdb_details(client, chat_id, tv_results[0]['id'], True)
                 return
             else:
@@ -1136,20 +1159,17 @@ async def search_tmdb(client, chat_id, query, post_type):
         return
 
     # ৩. বাংলা সংখ্যা এবং সাল প্রসেসিং ও নরমালাইজেশন
-    # বাংলা সংখ্যা লিখে সাল দিলে তা ইংরেজিতে রূপান্তর করে নেওয়া হবে (উদা: ২০০৯ -> 2009)
     bangla_digits = "০১২৩৪৫৬৭৮৯"
     english_digits = "0123456789"
     translation_table = str.maketrans(bangla_digits, english_digits)
     normalized_query = query.translate(translation_table)
 
-    # সাল খোঁজার জন্য রেগুলার এক্সপ্রেশন
     year_match = re.search(r'\b(19\d\d|20\d\d)\b', normalized_query)
     year = None
     search_query = query
 
     if year_match:
         year = year_match.group(1)
-        # মূল কোয়েরি থেকে সালটি বাদ দিয়ে শুধু নামের টেক্সট রাখা হচ্ছে যাতে সার্চ ফলাফল নিখুঁত হয়
         start, end = year_match.span()
         search_query = query[:start] + query[end:]
         search_query = re.sub(r'\s+', ' ', search_query).strip()
@@ -1170,7 +1190,6 @@ async def search_tmdb(client, chat_id, query, post_type):
         results = response.get('results', [])
         
         # ৪. বাংলা টাইটেল সার্চ ব্যাকআপ মেকানিজম
-        # ইংরেজি কি-বোর্ডে না লিখে বাংলায় সার্চ করলে অনেক সময় সরাসরি ফলাফল আসে না, সেক্ষেত্রে স্পেসিফিক ল্যাঙ্গুয়েজ ট্রায়াল চালানো হয়
         if not results and any(ord(c) > 127 for c in search_query):
             url_bn = url + "&language=bn-BD"
             async with http_session.get(url_bn, timeout=10) as resp_bn:
@@ -1195,7 +1214,7 @@ async def search_tmdb(client, chat_id, query, post_type):
         await client.send_message(chat_id, "⚠️ TMDB এপিআই সার্ভারে সংযোগ করা যাচ্ছে না।")
 
 
-# TMDB ডিটেইলস সংগ্রহ
+# TMDB ডিটেইলস এবং স্ক্রিনশট সংগ্রহ
 async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
     global http_session
     if not http_session:
@@ -1203,8 +1222,10 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         
     endpoint = "tv" if is_tv else "movie"
     url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}?api_key={TMDB_API_KEY}"
+    images_url = f"https://api.themoviedb.org/3/{endpoint}/{movie_id}/images?api_key={TMDB_API_KEY}"
     
     try:
+        # মুভি বা সিরিজের সাধারণ তথ্য সংগ্রহ
         async with http_session.get(url, timeout=10) as resp:
             data = await resp.json()
         title = data.get('title') if not is_tv else data.get('name')
@@ -1217,13 +1238,25 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
         backdrop = f"https://image.tmdb.org/t/p/original{data.get('backdrop_path')}" if data.get('backdrop_path') else 'https://via.placeholder.com/1280x720'
         plot = data.get('overview', 'No description available.')
 
+        # ৩টি ব্যাকড্রপ ইমেজ স্ক্রিনশট হিসেবে সংগ্রহের চেষ্টা করা হবে
+        screenshots = []
+        try:
+            async with http_session.get(images_url, timeout=10) as img_resp:
+                img_data = await img_resp.json()
+                backdrops = img_data.get('backdrops', [])
+                for b in backdrops[:3]:
+                    screenshots.append(f"https://image.tmdb.org/t/p/w780{b['file_path']}")
+        except Exception as e:
+            print(f"Error fetching TMDB images: {e}")
+
         user_states[chat_id]['movie_data'] = {
             'title': f"{title} ({year})",
             'poster': poster,
             'backdrop': backdrop,
             'rating': rating,
             'genres': genres,
-            'plot': plot
+            'plot': plot,
+            'screenshots': screenshots
         }
 
         user_states[chat_id]['step'] = 'waiting_for_lang_selection'
@@ -1236,7 +1269,7 @@ async def fetch_tmdb_details(client, chat_id, movie_id, is_tv):
 
 # ==================== প্রিমিয়াম HTML পোস্ট টেমপ্লেট জেনারেটরস ====================
 
-# ১. মুভি কোড জেনারেটর (স্মার্ট জয়েন বাইপাস ইউআরএল সহ)
+# ১. মুভি কোড জেনারেটর (অ্যানিমেটেড টাইমার লক, স্ক্রিনশট গ্রিড এবং বাংলা ডিরেকশন সহ)
 async def generate_movie_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     key_480 = user_states[chat_id].get('dl_480_key', '')
@@ -1251,10 +1284,19 @@ async def generate_movie_html_output(client, chat_id):
     link_720 = f"{app_url}/join/{key_720}" if key_720 else ""
     link_1080 = f"{app_url}/join/{key_1080}" if key_1080 else ""
 
+    # স্ক্রিনশট সেকশন জেনারেশন
+    screenshots = data.get('screenshots', [])
+    screenshots_html = ""
+    if screenshots:
+        screenshots_html = '<div class="screenshot-section"><div class="synopsis-title">Movie Screenshots</div><div class="screenshot-grid">'
+        for scr in screenshots:
+            screenshots_html += f'<img class="screenshot-img" src="{scr}" alt="Screenshot"/>'
+        screenshots_html += '</div></div>'
+
     btn_480_html = ""
     if link_480:
         btn_480_html = f'''
-        <a href="{link_480}" data-ad="{redirect_url}" class="download-btn btn-sd">
+        <a href="{link_480}" class="download-btn btn-sd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 480p (SD)</span>
         </a>'''
@@ -1262,7 +1304,7 @@ async def generate_movie_html_output(client, chat_id):
     btn_720_html = ""
     if link_720:
         btn_720_html = f'''
-        <a href="{link_720}" data-ad="{redirect_url}" class="download-btn btn-hd">
+        <a href="{link_720}" class="download-btn btn-hd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 720p (HD)</span>
         </a>'''
@@ -1270,7 +1312,7 @@ async def generate_movie_html_output(client, chat_id):
     btn_1080_html = ""
     if link_1080:
         btn_1080_html = f'''
-        <a href="{link_1080}" data-ad="{redirect_url}" class="download-btn btn-fhd">
+        <a href="{link_1080}" class="download-btn btn-fhd">
             <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span class="btn-label-text">Download 1080p (FullHD)</span>
         </a>'''
@@ -1359,6 +1401,22 @@ async def generate_movie_html_output(client, chat_id):
         color: #94a3b8;
         font-size: 15px;
     }}
+    .screenshot-section {{
+        margin: 25px 0;
+    }}
+    .screenshot-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin-top: 15px;
+    }}
+    .screenshot-img {{
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }}
     .guide-box {{
         background: rgba(30, 41, 59, 0.4);
         border: 1px solid rgba(56, 189, 248, 0.2);
@@ -1374,13 +1432,39 @@ async def generate_movie_html_output(client, chat_id):
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }}
     .guide-text {{
         margin: 0;
-        font-size: 13px;
-        line-height: 1.6;
+        font-size: 14px;
+        line-height: 1.8;
         color: #cbd5e1;
+    }}
+    .unlock-container {{
+        text-align: center;
+        margin: 30px 0;
+    }}
+    .unlock-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 18px 36px;
+        border-radius: 14px;
+        font-weight: 800;
+        font-size: 16px;
+        background: linear-gradient(135deg, #0284c7, #0369a1);
+        color: #ffffff;
+        box-shadow: 0 10px 25px rgba(2, 132, 199, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        border: none;
+        width: 100%;
+        max-width: 420px;
+    }}
+    .unlock-btn:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 15px 30px rgba(2, 132, 199, 0.45);
     }}
     .download-area {{
         background: #0f1015;
@@ -1416,7 +1500,7 @@ async def generate_movie_html_output(client, chat_id):
         font-weight: 700;
         font-size: 14px;
         text-decoration: none;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.3s ease;
         cursor: pointer;
         border: none;
     }}
@@ -1427,7 +1511,6 @@ async def generate_movie_html_output(client, chat_id):
     }}
     .btn-sd:hover {{
         background: rgba(255, 255, 255, 0.1);
-        transform: translateY(-2px);
     }}
     .btn-hd {{
         background: linear-gradient(135deg, #ef4444, #b91c1c);
@@ -1435,7 +1518,6 @@ async def generate_movie_html_output(client, chat_id):
         box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
     }}
     .btn-hd:hover {{
-        transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
     }}
     .btn-fhd {{
@@ -1444,16 +1526,7 @@ async def generate_movie_html_output(client, chat_id):
         box-shadow: 0 4px 15px rgba(6, 182, 212, 0.2);
     }}
     .btn-fhd:hover {{
-        transform: translateY(-2px);
         box-shadow: 0 8px 20px rgba(6, 182, 212, 0.35);
-    }}
-    @keyframes pulse-btn {{
-        0% {{ transform: scale(1); }}
-        50% {{ transform: scale(1.03); }}
-        100% {{ transform: scale(1); }}
-    }}
-    .btn-clicked {{
-        animation: pulse-btn 1.5s infinite;
     }}
 </style>
 
@@ -1461,12 +1534,6 @@ async def generate_movie_html_output(client, chat_id):
     <div class="poster-wrapper">
         <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
         <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
-    </div>
-
-    <div class="info-text" style="display: none;">
-        <div>Rating: {data['rating']}</div>
-        <div>Language: {data['lang']}</div>
-        <div>Genres: {data['genres']}</div>
     </div>
 
     <div class="info-card">
@@ -1484,19 +1551,30 @@ async def generate_movie_html_output(client, chat_id):
         <div class="synopsis-text">{data['plot']}</div>
     </div>
 
+    {screenshots_html}
+
     <div class="guide-box">
         <div class="guide-title">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            ডাউনলোড করার সঠিক নিয়ম:
+            ডাউনলোড করার সহজ নিয়মাবলী:
         </div>
         <p class="guide-text">
-            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
-            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
-            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+            ১. প্রথমে নিচে দেওয়া <b>"Unlock Download Links"</b> বাটনে ক্লিক করুন। এতে একটি স্পন্সর বিজ্ঞাপন পেজ ওপেন হবে।<br/>
+            ২. বিজ্ঞাপন পেজটি লোড হতে দিন এবং আপনি বর্তমান ব্রাউজার ট্যাবে (Blogger পেজে) ফেরত আসুন।<br/>
+            ৩. পেজে আসার সাথে সাথে বাটনের ওপর <b>৫ সেকেন্ডের</b> একটি কাউন্টডাউন শুরু হবে। দয়া করে অপেক্ষা করুন।<br/>
+            ４. টাইমার শেষ হওয়ামাত্র ডাউনলোড বাটনগুলো আপনার সামনে আনলক হবে। এবার লিংকে ক্লিক করলেই ফাইল সরাসরি টেলিগ্রামে চলে যাবে।
         </p>
     </div>
 
-    <div class="download-area">
+    <!-- আনলক বাটন কন্টেইনার -->
+    <div class="unlock-container">
+        <button id="unlockBtn" data-ad="{redirect_url}" class="unlock-btn">
+            <span id="unlockIcon">🔓</span> <span id="unlockText">Unlock Download Links</span>
+        </button>
+    </div>
+
+    <!-- সিকিউর ডাউনলোড সেকশন (শুরুতে হাইড থাকবে) -->
+    <div id="downloadArea" class="download-area" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
         <h3>Secure Download Links</h3>
         <div class="button-container">
             {btn_480_html}
@@ -1507,42 +1585,54 @@ async def generate_movie_html_output(client, chat_id):
 </div>
 
 <script>
-document.querySelectorAll('.download-btn').forEach(function(element) {{
-    element.addEventListener('click', function(e) {{
-        var adLink = this.getAttribute('data-ad');
-        
-        if (!adLink || adLink === 'None' || adLink === '') {{
-            return; 
-        }}
-        
-        if (this.getAttribute('data-clicked') !== 'true') {{
-            e.preventDefault(); 
-            window.open(adLink, '_blank');
-            this.setAttribute('data-clicked', 'true');
-            this.classList.add('btn-clicked');
+document.getElementById('unlockBtn').addEventListener('click', function() {{
+    var adLink = this.getAttribute('data-ad');
+    var btn = this;
+    var unlockText = document.getElementById('unlockText');
+    var unlockIcon = document.getElementById('unlockIcon');
+    
+    if (btn.getAttribute('data-started') === 'true') return;
+    btn.setAttribute('data-started', 'true');
+    
+    // বিজ্ঞাপনটি অন্য ট্যাবে ওপেন হবে
+    if (adLink && adLink !== 'None' && adLink !== '') {{
+        window.open(adLink, '_blank');
+    }}
+    
+    // ৫ সেকেন্ডের লাইভ এনিমেটেড টাইমার স্টার্ট
+    var count = 5;
+    btn.style.background = 'linear-gradient(135deg, #e11d48, #be123c)';
+    unlockIcon.innerHTML = '⏳';
+    unlockText.innerHTML = 'Please Wait... ' + count + 's';
+    
+    var interval = setInterval(function() {{
+        count--;
+        if (count > 0) {{
+            unlockText.innerHTML = 'Please Wait... ' + count + 's';
+        }} else {{
+            clearInterval(interval);
+            // টাইমার শেষ হলে বাটন হাইড হবে
+            document.querySelector('.unlock-container').style.display = 'none';
             
-            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-            this.style.borderColor = '#10b981';
-            this.style.color = '#ffffff';
-            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
-            
-            var mainText = this.querySelector('.btn-label-text');
-            if (mainText) {{
-                mainText.innerHTML = '⚡ Click Again to Download';
-            }}
+            // ডাউনলোড বাটন ফেড-ইন অ্যানিমেশনসহ শো করবে
+            var dlArea = document.getElementById('downloadArea');
+            dlArea.style.display = 'block';
+            setTimeout(function() {{
+                dlArea.style.opacity = '1';
+            }}, 50);
         }}
-    }});
+    }}, 1000);
 }});
 </script>
 <!-- MOVIE POST END -->"""
 
-    await client.send_message(chat_id, f"🎉 **মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, f"🎉 **মুভি পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের বাটনে ক্লিক করে কোড পেইজ থেকে কপি করুন:")
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}.html")
     user_states[chat_id] = {}
 
 
-# ২. ওয়েব সিরিজ কোড জেনারেটর (স্মার্ট জয়েন বাইপাস ইউআরএল সহ)
+# ২. ওয়েব সিরিজ কোড জেনারেটর (অ্যানিমেটেড টাইমার লক, স্ক্রিনশট গ্রিড এবং বাংলা ডিরেকশন সহ)
 async def generate_series_html_output(client, chat_id):
     data = user_states[chat_id]['movie_data']
     season = user_states[chat_id]['season']
@@ -1551,13 +1641,21 @@ async def generate_series_html_output(client, chat_id):
     app_url = os.environ.get('APP_URL', 'https://your-bot-domain.koyeb.app').rstrip('/')
     redirect_url = f"{app_url}/redirect/{chat_id}"
 
+    # স্ক্রিনশট সেকশন জেনারেশন
+    screenshots = data.get('screenshots', [])
+    screenshots_html = ""
+    if screenshots:
+        screenshots_html = '<div class="screenshot-section"><div class="synopsis-title">Series Screenshots</div><div class="screenshot-grid">'
+        for scr in screenshots:
+            screenshots_html += f'<img class="screenshot-img" src="{scr}" alt="Screenshot"/>'
+        screenshots_html += '</div></div>'
+
     episode_buttons_html = ""
     for ep in episodes:
-        # সরাসরি ডোমেন বাদ দিয়ে কোয়েব বাইপাস জয়েন লিঙ্ক বসানো হয়েছে
         link = f"{app_url}/join/{ep['key']}"
         
         episode_buttons_html += f"""
-        <a href="{link}" data-ad="{redirect_url}" class="download-btn series-btn">
+        <a href="{link}" class="download-btn series-btn">
             <span class="btn-sub-text">Episode Downloader</span>
             <span class="btn-label-text">{ep['name']}</span>
         </a>"""
@@ -1645,6 +1743,22 @@ async def generate_series_html_output(client, chat_id):
         color: #94a3b8;
         font-size: 15px;
     }}
+    .screenshot-section {{
+        margin: 25px 0;
+    }}
+    .screenshot-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin-top: 15px;
+    }}
+    .screenshot-img {{
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }}
     .guide-box {{
         background: rgba(30, 41, 59, 0.4);
         border: 1px solid rgba(56, 189, 248, 0.2);
@@ -1660,13 +1774,39 @@ async def generate_series_html_output(client, chat_id):
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }}
     .guide-text {{
         margin: 0;
-        font-size: 13px;
-        line-height: 1.6;
+        font-size: 14px;
+        line-height: 1.8;
         color: #cbd5e1;
+    }}
+    .unlock-container {{
+        text-align: center;
+        margin: 30px 0;
+    }}
+    .unlock-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 18px 36px;
+        border-radius: 14px;
+        font-weight: 800;
+        font-size: 16px;
+        background: linear-gradient(135deg, #0284c7, #0369a1);
+        color: #ffffff;
+        box-shadow: 0 10px 25px rgba(2, 132, 199, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        cursor: pointer;
+        border: none;
+        width: 100%;
+        max-width: 420px;
+    }}
+    .unlock-btn:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 15px 30px rgba(2, 132, 199, 0.45);
     }}
     .download-area {{
         background: #0f1015;
@@ -1702,14 +1842,13 @@ async def generate_series_html_output(client, chat_id):
         align-items: center;
         justify-content: center;
         gap: 6px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.3s ease;
         min-height: 75px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
     }}
     .series-btn:hover {{
         border-color: #38bdf8;
         transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
         background: rgba(56, 189, 248, 0.05);
     }}
     .btn-sub-text {{
@@ -1724,26 +1863,12 @@ async def generate_series_html_output(client, chat_id):
         font-weight: 700;
         text-align: center;
     }}
-    @keyframes pulse-btn {{
-        0% {{ transform: scale(1); }}
-        50% {{ transform: scale(1.03); }}
-        100% {{ transform: scale(1); }}
-    }}
-    .btn-clicked {{
-        animation: pulse-btn 1.5s infinite;
-    }}
 </style>
 
 <div class="series-container">
     <div class="poster-wrapper">
         <img class="poster-img" src="{data['poster']}" alt="{data['title']} Poster"/>
         <img src="{data['backdrop']}" style="display: none;" alt="{data['title']} Backdrop"/>
-    </div>
-
-    <div class="info-text" style="display: none;">
-        <div>Rating: {data['rating']}</div>
-        <div>Language: {data['lang']}</div>
-        <div>Genres: {data['genres']}</div>
     </div>
 
     <div class="info-card">
@@ -1762,19 +1887,30 @@ async def generate_series_html_output(client, chat_id):
         <div class="synopsis-text">{data['plot']}</div>
     </div>
 
+    {screenshots_html}
+
     <div class="guide-box">
         <div class="guide-title">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            ডাউনলোড করার সঠিক নিয়ম:
+            ডাউনলোড করার সহজ নিয়মাবলী:
         </div>
         <p class="guide-text">
-            ১. ডাউনলোড বাটনে প্রথমবার ক্লিক করলে একটি স্পনসর বিজ্ঞাপনের পেইজ চালু হবে।<br/>
-            ২. সেটি ব্যাকগ্রাউন্ডে লোড হতে দিয়ে আপনি বর্তমান (Blogger) পেইজে ফিরে আসুন।<br/>
-            ৩. এবার বাটনে <strong>"Click Again to Download"</strong> দেখতে পাবেন, সেখানে পুনরায় ক্লিক করলেই ফাইলটি সরাসরি টেলিগ্রামে পেয়ে যাবেন।
+            ১. প্রথমে নিচে দেওয়া <b>"Unlock Download Links"</b> বাটনে ক্লিক করুন। এতে একটি স্পন্সর বিজ্ঞাপন পেজ ওপেন হবে।<br/>
+            ২. বিজ্ঞাপন পেজটি লোড হতে দিন এবং আপনি বর্তমান ব্রাউজার ট্যাবে (Blogger পেজে) ফেরত আসুন।<br/>
+            ৩. পেজে আসার সাথে সাথে বাটনের ওপর <b>৫ সেকেন্ডের</b> একটি কাউন্টডাউন শুরু হবে। দয়া করে অপেক্ষা করুন।<br/>
+            ৪. টাইমার শেষ হওয়ামাত্র ডাউনলোড বাটনগুলো আপনার সামনে আনলক হবে। এবার লিংকে ক্লিক করলেই ফাইল সরাসরি টেলিগ্রামে চলে যাবে।
         </p>
     </div>
 
-    <div class="download-area">
+    <!-- আনলক বাটন কন্টেইনার -->
+    <div class="unlock-container">
+        <button id="unlockBtn" data-ad="{redirect_url}" class="unlock-btn">
+            <span id="unlockIcon">🔓</span> <span id="unlockText">Unlock Download Links</span>
+        </button>
+    </div>
+
+    <!-- সিকিউর ডাউনলোড সেকশন (শুরুতে হাইড থাকবে) -->
+    <div id="downloadArea" class="download-area" style="display: none; opacity: 0; transition: opacity 0.5s ease-in-out;">
         <h3>📥 Episode List (Season {season})</h3>
         <div class="grid-container">
             {episode_buttons_html}
@@ -1783,36 +1919,48 @@ async def generate_series_html_output(client, chat_id):
 </div>
 
 <script>
-document.querySelectorAll('.download-btn').forEach(function(element) {{
-    element.addEventListener('click', function(e) {{
-        var adLink = this.getAttribute('data-ad');
-        
-        if (!adLink || adLink === 'None' || adLink === '') {{
-            return; 
-        }}
-        
-        if (this.getAttribute('data-clicked') !== 'true') {{
-            e.preventDefault(); 
-            window.open(adLink, '_blank');
-            this.setAttribute('data-clicked', 'true');
-            this.classList.add('btn-clicked');
+document.getElementById('unlockBtn').addEventListener('click', function() {{
+    var adLink = this.getAttribute('data-ad');
+    var btn = this;
+    var unlockText = document.getElementById('unlockText');
+    var unlockIcon = document.getElementById('unlockIcon');
+    
+    if (btn.getAttribute('data-started') === 'true') return;
+    btn.setAttribute('data-started', 'true');
+    
+    // বিজ্ঞাপনটি অন্য ট্যাবে ওপেন হবে
+    if (adLink && adLink !== 'None' && adLink !== '') {{
+        window.open(adLink, '_blank');
+    }}
+    
+    // ৫ সেকেন্ডের লাইভ এনিমেটেড টাইমার স্টার্ট
+    var count = 5;
+    btn.style.background = 'linear-gradient(135deg, #e11d48, #be123c)';
+    unlockIcon.innerHTML = '⏳';
+    unlockText.innerHTML = 'Please Wait... ' + count + 's';
+    
+    var interval = setInterval(function() {{
+        count--;
+        if (count > 0) {{
+            unlockText.innerHTML = 'Please Wait... ' + count + 's';
+        }} else {{
+            clearInterval(interval);
+            // টাইমার শেষ হলে বাটন হাইড হবে
+            document.querySelector('.unlock-container').style.display = 'none';
             
-            this.style.background = 'linear-gradient(135deg, #10b981, #059669)';
-            this.style.borderColor = '#10b981';
-            this.style.color = '#ffffff';
-            this.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.35)';
-            
-            var subText = this.querySelector('.btn-sub-text');
-            var mainText = this.querySelector('.btn-label-text');
-            if (subText) subText.innerHTML = '⚡ READY TO DOWNLOAD';
-            if (mainText) mainText.innerHTML = 'Click Again';
+            // ডাউনলোড বাটন ফেড-ইন অ্যানিমেশনসহ শো করবে
+            var dlArea = document.getElementById('downloadArea');
+            dlArea.style.display = 'block';
+            setTimeout(function() {{
+                dlArea.style.opacity = '1';
+            }}, 50);
         }}
-    }});
+    }}, 1000);
 }});
 </script>
 <!-- TV SHOW POST END -->"""
 
-    await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের কোডটি কপি করে নিন:")
+    await client.send_message(chat_id, f"🎉 **সিজন {season}-এর সব এপিসোডসহ ওয়েব সিরিজ পোস্টের HTML কোড প্রস্তুত হয়েছে!**\nনিচের বাটনে ক্লিক করে কোড পেইজ থেকে কপি করুন:")
     safe_title = "".join(c for c in data['title'] if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
     await send_html_code(client, chat_id, html_code, filename=f"{safe_title}_season_{season}.html")
     user_states[chat_id] = {}
